@@ -1,20 +1,20 @@
 /*
  * NAVEX NDS
- * Adapted conceptually from Project NAVEX's scripts/index.js:
- * - Google Maps click-to-add markers
- * - draggable route points
- * - Kertau RSO / RSO Malaya (EPSG:3168) <-> WGS84 (EPSG:4326) conversion via epsg.io
- * - 6400-mil azimuth calculation
+ * MapTiler / MapLibre implementation based on Project NAVEX's map workflow.
+ * MGR conversion uses EPSG:3168 <-> EPSG:4326, matching Project NAVEX.
  *
- * Replace YOUR_GOOGLE_MAPS_API_KEY in index.html with a Google Maps browser key.
+ * Replace YOUR_MAPTILER_API_KEY with your MapTiler Cloud browser key.
  */
 
+const MAPTILER_STORAGE_KEY = 'navex.maptiler.apiKey';
+
 let map;
-let poly;
+let routeSourceReady = false;
 let markers = [];
+let checkpointMarkers = [];
 let nextId = 1;
-let activePointId = null;
 let editingPointId = null;
+let checkpointsVisible = true;
 
 const state = {
   speedKmh: 4.0,
@@ -24,7 +24,16 @@ const state = {
 
 const els = {};
 
-window.initMap = function initMap() {
+const MAP_STYLES = {
+  streets: maptilersdk.MapStyle.STREETS,
+  outdoor: maptilersdk.MapStyle.OUTDOOR,
+  satellite: maptilersdk.MapStyle.SATELLITE,
+  hybrid: maptilersdk.MapStyle.SATELLITE,
+};
+
+window.addEventListener('load', initApp);
+
+function initApp() {
   Object.assign(els, {
     speed: document.getElementById('speed'),
     distanceUnit: document.getElementById('distanceUnit'),
@@ -32,114 +41,292 @@ window.initMap = function initMap() {
     mgrInput: document.getElementById('mgrInput'),
     mgrStatus: document.getElementById('mgrStatus'),
     pointList: document.getElementById('pointList'),
+    checkpointList: document.getElementById('checkpointList'),
     ndsBody: document.querySelector('#ndsTable tbody'),
     routeSummary: document.getElementById('routeSummary'),
     mapType: document.getElementById('mapType'),
     editDialog: document.getElementById('editDialog'),
     editDescription: document.getElementById('editDescription'),
     editRemarks: document.getElementById('editRemarks'),
+    toggleCheckpointsBtn: document.getElementById('toggleCheckpointsBtn'),
+    apiKeyDialog: document.getElementById('apiKeyDialog'),
+    apiKeyForm: document.getElementById('apiKeyForm'),
+    apiKeyInput: document.getElementById('apiKeyInput'),
+    apiKeyStatus: document.getElementById('apiKeyStatus'),
   });
 
-  map = new google.maps.Map(document.getElementById('map'), {
-    zoom: 12,
-    center: { lat: 1.3521, lng: 103.8198 },
-    restriction: {
-      latLngBounds: { north: 1.466878, south: 1.21186, west: 103.584676, east: 104.114079 },
-      strictBounds: false,
-    },
-    mapTypeControl: false,
-    clickableIcons: false,
-    streetViewControl: false,
-    fullscreenControl: false,
-  });
-
-  poly = new google.maps.Polyline({
-    strokeColor: '#d5a84b',
-    strokeOpacity: 0.95,
-    strokeWeight: 3,
-    map,
-  });
-
-  map.addListener('click', e => addPoint(e.latLng));
-
+  bindApiKeyUI();
   bindUI();
-  render();
-};
+
+  const savedKey = getStoredApiKey();
+  if (savedKey) {
+    initMap(savedKey);
+  } else {
+    showApiKeyDialog(true);
+  }
+}
+
+function getStoredApiKey() {
+  try { return localStorage.getItem(MAPTILER_STORAGE_KEY)?.trim() || ''; }
+  catch { return ''; }
+}
+
+function saveApiKey(key) {
+  localStorage.setItem(MAPTILER_STORAGE_KEY, key.trim());
+}
+
+function showApiKeyDialog(required = false) {
+  els.apiKeyStatus.textContent = required ? 'A MapTiler API key is required to load the map.' : '';
+  els.apiKeyInput.value = getStoredApiKey();
+  els.apiKeyCancelBtn = document.getElementById('apiKeyCancelBtn');
+  els.apiKeyCancelBtn.style.display = required ? 'none' : '';
+  if (!els.apiKeyDialog.open) els.apiKeyDialog.showModal();
+  setTimeout(() => els.apiKeyInput.focus(), 0);
+}
+
+function bindApiKeyUI() {
+  els.apiKeyForm.addEventListener('submit', event => {
+    if (event.submitter?.value !== 'save') return;
+    event.preventDefault();
+    const key = els.apiKeyInput.value.trim();
+    if (!key) {
+      els.apiKeyStatus.textContent = 'Enter a MapTiler API key.';
+      return;
+    }
+    saveApiKey(key);
+    els.apiKeyDialog.close();
+    if (map) map.remove();
+    markers.forEach(x => x.marker.remove());
+    checkpointMarkers.forEach(x => x.marker.remove());
+    markers = [];
+    checkpointMarkers = [];
+    routeSourceReady = false;
+    nextId = 1;
+    initMap(key);
+  });
+  document.getElementById('apiKeyCancelBtn').addEventListener('click', () => els.apiKeyDialog.close());
+  document.getElementById('mapKeyBtn').addEventListener('click', () => showApiKeyDialog(false));
+}
+
+function initMap(apiKey) {
+  maptilersdk.config.apiKey = apiKey;
+
+  map = new maptilersdk.Map({
+    container: 'map',
+    style: MAP_STYLES.streets,
+    center: [103.8198, 1.3521],
+    zoom: 11,
+    attributionControl: true,
+  });
+
+  map.addControl(new maptilersdk.NavigationControl(), 'top-right');
+
+  map.on('load', async () => {
+    setupRouteLayer();
+    await loadCheckpoints();
+    render();
+  });
+
+  map.on('click', e => {
+    // Ignore clicks on checkpoint markers because their DOM marker stops propagation.
+    addPoint({ lat: e.lngLat.lat, lng: e.lngLat.lng }, null, false);
+  });
+
+  map.on('style.load', () => {
+    setupRouteLayer();
+    syncPolyline();
+  });
+}
+
+function setupRouteLayer() {
+  if (!map.isStyleLoaded()) return;
+
+  if (!map.getSource('route')) {
+    map.addSource('route', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+    });
+  }
+
+  if (!map.getLayer('route-line')) {
+    map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#d5a84b', 'line-opacity': 0.95, 'line-width': 3 },
+    });
+  }
+  routeSourceReady = true;
+}
 
 function bindUI() {
-  els.speed.addEventListener('input', () => { state.speedKmh = Math.max(0.1, Number(els.speed.value) || 4); render(); });
-  els.distanceUnit.addEventListener('change', () => { state.distanceUnit = els.distanceUnit.value; render(); });
-  els.mgrPrecision.addEventListener('change', () => { state.mgrPrecision = Number(els.mgrPrecision.value); render(); });
-  els.mapType.addEventListener('change', () => map.setMapTypeId(els.mapType.value));
+  if (els._bound) return;
+  els._bound = true;
+
+  els.speed.addEventListener('input', () => {
+    state.speedKmh = Math.max(0.1, Number(els.speed.value) || 4);
+    render();
+  });
+  els.distanceUnit.addEventListener('change', () => {
+    state.distanceUnit = els.distanceUnit.value;
+    render();
+  });
+  els.mgrPrecision.addEventListener('change', () => {
+    state.mgrPrecision = Number(els.mgrPrecision.value);
+    convertAllMGRs().then(render).catch(() => render());
+  });
+  els.mapType.addEventListener('change', () => {
+    const style = MAP_STYLES[els.mapType.value];
+    if (style) map.setStyle(style);
+  });
+  els.toggleCheckpointsBtn.addEventListener('click', toggleCheckpoints);
   document.getElementById('clearBtn').addEventListener('click', clearRoute);
   document.getElementById('addMgrBtn').addEventListener('click', addMGR);
   document.getElementById('printBtn').addEventListener('click', () => window.print());
   document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
   document.getElementById('addRowBtn').addEventListener('click', () => addBlankPoint());
   els.mgrInput.addEventListener('keydown', e => { if (e.key === 'Enter') addMGR(); });
+
+  const form = document.getElementById('editForm');
+  form.addEventListener('submit', e => {
+    if (e.submitter?.value !== 'save') return;
+    const item = markers.find(x => x.point.id === editingPointId);
+    if (!item) return;
+    item.point.description = els.editDescription.value.trim();
+    item.point.remarks = els.editRemarks.value.trim();
+    render();
+  });
 }
 
-function addPoint(latLng, mgr = null) {
+async function loadCheckpoints() {
+  const defs = Array.isArray(window.CHECKPOINTS) ? window.CHECKPOINTS : [];
+  checkpointMarkers.forEach(x => x.marker.remove());
+  checkpointMarkers = [];
+
+  for (const cp of defs) {
+    try {
+      const position = cp.lat != null && cp.lng != null
+        ? { lat: Number(cp.lat), lng: Number(cp.lng) }
+        : await mgrToLatLng(cp.mgr);
+      if (!position || !Number.isFinite(position.lat) || !Number.isFinite(position.lng)) continue;
+      createCheckpointMarker({ ...cp, ...position });
+    } catch (err) {
+      console.warn(`Could not plot ${cp.id}:`, err);
+    }
+  }
+  renderCheckpointList();
+}
+
+function createCheckpointMarker(cp) {
+  const type = String(cp.type || 'CP').toUpperCase() === 'SCP' ? 'SCP' : 'CP';
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = `checkpoint-marker ${type.toLowerCase()}`;
+  el.textContent = cp.id || cp.name || type;
+  el.title = `${cp.name || cp.id || type} — click to add to route`;
+
+  const marker = new maptilersdk.Marker({ element: el, anchor: 'bottom' })
+    .setLngLat([cp.lng, cp.lat])
+    .addTo(map);
+
+  el.addEventListener('click', event => {
+    event.stopPropagation();
+    addCheckpointToRoute(cp);
+  });
+
+  checkpointMarkers.push({ cp, marker });
+}
+
+function addCheckpointToRoute(cp) {
+  const existing = markers.find(x => x.point.checkpointId === cp.id);
+  if (existing) {
+    map.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
+    return;
+  }
+  addPoint({ lat: cp.lat, lng: cp.lng }, {
+    id: cp.id,
+    name: cp.name || cp.id,
+    type: cp.type || 'CP',
+    mgr: cp.mgr || null,
+  }, true);
+  map.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
+}
+
+function addPoint(latLng, checkpoint = null, fixed = false) {
   const point = {
     id: nextId++,
-    lat: latLng.lat(),
-    lng: latLng.lng(),
-    mgr,
-    description: '',
+    lat: Number(latLng.lat),
+    lng: Number(latLng.lng),
+    mgr: checkpoint?.mgr ? formatInputMGR(checkpoint.mgr) : null,
+    description: checkpoint?.name || '',
     remarks: '',
+    checkpointId: checkpoint?.id || null,
+    checkpointType: checkpoint?.type || null,
+    fixed: Boolean(fixed),
   };
 
-  const marker = new google.maps.Marker({
-    position: latLng,
-    map,
-    draggable: true,
-    label: { text: String(markers.length + 1), color: '#ffffff', fontWeight: '700' },
+  const el = document.createElement('div');
+  el.className = `route-marker ${point.fixed ? 'fixed' : 'manual'}`;
+  el.textContent = point.checkpointId || String(markers.length + 1);
+  el.title = point.fixed ? `${point.checkpointId} — fixed checkpoint` : 'Manual route point';
+
+  const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !fixed })
+    .setLngLat([point.lng, point.lat])
+    .addTo(map);
+
+  el.addEventListener('click', event => {
+    event.stopPropagation();
+    openPointEditor(point.id);
   });
 
-  marker.__pointId = point.id;
-  marker.addListener('click', () => openPointEditor(point.id));
-  marker.addListener('dragend', () => {
-    point.lat = marker.getPosition().lat();
-    point.lng = marker.getPosition().lng();
-    point.mgr = null;
-    syncPolyline();
-    convertAllMGRs().then(render).catch(() => render());
-  });
+  if (!fixed) {
+    marker.on('dragend', () => {
+      const pos = marker.getLngLat();
+      point.lat = pos.lat;
+      point.lng = pos.lng;
+      point.mgr = null;
+      syncPolyline();
+      convertAllMGRs().then(render).catch(() => render());
+    });
+  }
 
   markers.push({ point, marker });
   syncPolyline();
-  convertAllMGRs().then(render).catch(() => render());
+  if (point.mgr) render();
+  else convertAllMGRs().then(render).catch(() => render());
 }
 
 function addBlankPoint() {
-  if (!markers.length) {
-    addPoint(new google.maps.LatLng(1.3521, 103.8198));
-  } else {
-    const last = markers[markers.length - 1].point;
-    addPoint(new google.maps.LatLng(last.lat + 0.001, last.lng + 0.001));
-  }
+  const last = markers[markers.length - 1]?.point;
+  const pos = last
+    ? { lat: last.lat + 0.001, lng: last.lng + 0.001 }
+    : { lat: 1.3521, lng: 103.8198 };
+  addPoint(pos);
+  map.flyTo({ center: [pos.lng, pos.lat], zoom: Math.max(map.getZoom(), 14) });
 }
 
 function removePoint(id) {
   const i = markers.findIndex(x => x.point.id === id);
   if (i < 0) return;
-  markers[i].marker.setMap(null);
+  markers[i].marker.remove();
   markers.splice(i, 1);
-  renumberMarkers();
   syncPolyline();
   convertAllMGRs().then(render).catch(() => render());
 }
 
-function renumberMarkers() {
-  markers.forEach((x, i) => x.marker.setLabel({ text: String(i + 1), color: '#ffffff', fontWeight: '700' }));
-}
-
 function syncPolyline() {
-  poly.setPath(markers.map(x => x.marker.getPosition()));
+  if (!routeSourceReady || !map.getSource('route')) return;
+  const coordinates = markers.map(x => [x.point.lng, x.point.lat]);
+  map.getSource('route').setData({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coordinates.length >= 2 ? coordinates : [] },
+    properties: {},
+  });
 }
 
 function clearRoute() {
-  markers.forEach(x => x.marker.setMap(null));
+  markers.forEach(x => x.marker.remove());
   markers = [];
   nextId = 1;
   syncPolyline();
@@ -155,18 +342,6 @@ function openPointEditor(id) {
   els.editDialog.showModal();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const form = document.getElementById('editForm');
-  form?.addEventListener('submit', e => {
-    if (e.submitter?.value !== 'save') return;
-    const item = markers.find(x => x.point.id === editingPointId);
-    if (!item) return;
-    item.point.description = els.editDescription.value.trim();
-    item.point.remarks = els.editRemarks.value.trim();
-    render();
-  });
-});
-
 function addMGR() {
   const raw = els.mgrInput.value.replace(/\s+/g, '');
   if (!/^\d{8}$/.test(raw)) {
@@ -175,20 +350,31 @@ function addMGR() {
   }
 
   els.mgrStatus.textContent = 'Converting MGR…';
+  mgrToLatLng(raw).then(latLng => {
+    addPoint(latLng, null, false);
+    map.flyTo({ center: [latLng.lng, latLng.lat], zoom: Math.max(map.getZoom(), 14) });
+    els.mgrInput.value = '';
+    els.mgrStatus.textContent = 'MGR plotted.';
+  }).catch(() => {
+    els.mgrStatus.textContent = 'MGR conversion failed.';
+  });
+}
+
+function mgrToLatLng(mgr) {
+  const raw = formatInputMGR(mgr).replace(/\s/g, '');
+  if (!/^\d{8}$/.test(raw)) return Promise.reject(new Error('Invalid MGR'));
   const e = raw.slice(0, 4);
   const n = raw.slice(4, 8);
   const x = `6${e}0`;
   const y = `1${n}0`;
-  jsonp(`https://epsg.io/trans?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&s_srs=3168&t_srs=4326`, response => {
-    try {
-      const latLng = new google.maps.LatLng(Number(response.y), Number(response.x));
-      addPoint(latLng, `${e} ${n}`);
-      map.panTo(latLng);
-      els.mgrInput.value = '';
-      els.mgrStatus.textContent = 'MGR plotted.';
-    } catch (err) {
-      els.mgrStatus.textContent = 'MGR conversion failed.';
-    }
+  return new Promise((resolve, reject) => {
+    jsonp(`https://epsg.io/trans?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&s_srs=3168&t_srs=4326`, response => {
+      if (!response || !Number.isFinite(Number(response.x)) || !Number.isFinite(Number(response.y))) {
+        reject(new Error('MGR conversion failed'));
+        return;
+      }
+      resolve({ lng: Number(response.x), lat: Number(response.y) });
+    });
   });
 }
 
@@ -198,7 +384,9 @@ async function convertAllMGRs() {
   return new Promise((resolve, reject) => {
     jsonp(`https://epsg.io/trans?data=${encodeURIComponent(data)}&s_srs=4326&t_srs=3168`, response => {
       try {
+        if (!Array.isArray(response)) throw new Error('Bad conversion response');
         response.forEach((p, i) => {
+          if (markers[i].point.checkpointId && markers[i].point.mgr) return;
           const e = String(p.x).replace(/\D/g, '').slice(0, 6);
           const n = String(p.y).replace(/\D/g, '').slice(0, 6);
           markers[i].point.mgr = formatMGRDigits(e, n, state.mgrPrecision);
@@ -209,6 +397,10 @@ async function convertAllMGRs() {
   });
 }
 
+function formatInputMGR(mgr) {
+  return String(mgr || '').replace(/\s+/g, '');
+}
+
 function formatMGRDigits(e, n, precision) {
   if (!e || !n) return '—';
   return `${e.slice(0, precision)} ${n.slice(0, precision)}`;
@@ -217,16 +409,16 @@ function formatMGRDigits(e, n, precision) {
 function jsonp(url, callback) {
   const cb = `navexCallback_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   const script = document.createElement('script');
-  window[cb] = data => {
+  let finished = false;
+  const done = data => {
+    if (finished) return;
+    finished = true;
     delete window[cb];
     script.remove();
     callback(data);
   };
-  script.onerror = () => {
-    delete window[cb];
-    script.remove();
-    callback(null);
-  };
+  window[cb] = done;
+  script.onerror = () => done(null);
   script.src = `${url}&callback=${cb}`;
   document.body.appendChild(script);
 }
@@ -246,15 +438,7 @@ function calculateLegs() {
     const distance = Math.sqrt(eDiff ** 2 + nDiff ** 2) * gridUnitMeters;
     const azimuth = calcAzimuth(eDiff, nDiff);
     const seconds = distance / (state.speedKmh * 1000 / 3600);
-    legs.push({
-      from: a,
-      to: b,
-      distance,
-      azimuth,
-      seconds,
-      description: b.description || '',
-      remarks: b.remarks || '',
-    });
+    legs.push({ from: a, to: b, distance, azimuth, seconds, description: b.description || '', remarks: b.remarks || '' });
   }
   return legs;
 }
@@ -266,7 +450,7 @@ function mgrNumber(mgr, index) {
 
 function calcAzimuth(eDiff, nDiff) {
   if (eDiff === 0) return nDiff >= 0 ? 6400 : 3200;
-  let angle = Math.atan(nDiff / eDiff);
+  const angle = Math.atan(nDiff / eDiff);
   let mil = eDiff > 0 ? 1600 - (angle / (2 * Math.PI)) * 6400 : 4800 - (angle / (2 * Math.PI)) * 6400;
   mil = Math.round(mil);
   return ((mil % 6400) + 6400) % 6400;
@@ -287,21 +471,42 @@ function formatTime(seconds) {
 function render() {
   const legs = calculateLegs();
   renderPointList();
+  renderCheckpointList();
   renderTable(legs);
   const totalDistance = legs.reduce((s, x) => s + x.distance, 0);
   const totalSeconds = legs.reduce((s, x) => s + x.seconds, 0);
   els.routeSummary.textContent = `${legs.length} leg${legs.length === 1 ? '' : 's'} · ${formatDistance(totalDistance)} · ${formatTime(totalSeconds)}`;
 }
 
+function renderCheckpointList() {
+  const defs = Array.isArray(window.CHECKPOINTS) ? window.CHECKPOINTS : [];
+  if (!defs.length) {
+    els.checkpointList.innerHTML = '<div class="empty">No checkpoints configured. Edit checkpoints.js.</div>';
+    return;
+  }
+  els.checkpointList.innerHTML = defs.map(cp => {
+    const plotted = markers.some(x => x.point.checkpointId === cp.id);
+    return `<div class="checkpoint-item">
+      <span class="cp-badge ${String(cp.type || 'CP').toLowerCase()}">${escapeHtml(cp.type || 'CP')}</span>
+      <span class="cp-name"><strong>${escapeHtml(cp.id)}</strong><small>${escapeHtml(cp.name || '')}</small></span>
+      <button class="icon-btn" data-add-cp="${escapeAttr(cp.id)}" ${plotted ? 'disabled' : ''}>${plotted ? '✓' : 'Add'}</button>
+    </div>`;
+  }).join('');
+  els.checkpointList.querySelectorAll('[data-add-cp]').forEach(btn => btn.addEventListener('click', () => {
+    const cp = defs.find(x => x.id === btn.dataset.addCp);
+    if (cp) addCheckpointToRoute(cp);
+  }));
+}
+
 function renderPointList() {
   if (!markers.length) {
-    els.pointList.innerHTML = '<div class="empty">No route points. Click the map to add one.</div>';
+    els.pointList.innerHTML = '<div class="empty">No route points. Click the map or add a checkpoint.</div>';
     return;
   }
   els.pointList.innerHTML = markers.map((x, i) => `
     <div class="point-item">
       <span class="num">${i + 1}</span>
-      <span class="mgr">${x.point.mgr || 'Converting…'}</span>
+      <span class="mgr">${escapeHtml(x.point.checkpointId || x.point.mgr || 'Converting…')}</span>
       <button class="icon-btn" data-delete="${x.point.id}">×</button>
     </div>`).join('');
   els.pointList.querySelectorAll('[data-delete]').forEach(btn => btn.addEventListener('click', () => removePoint(Number(btn.dataset.delete))));
@@ -315,8 +520,8 @@ function renderTable(legs) {
   els.ndsBody.innerHTML = legs.map((leg, i) => `
     <tr>
       <td>${i + 1}</td>
-      <td class="mgr-cell">${leg.from.mgr || '—'}</td>
-      <td class="mgr-cell">${leg.to.mgr || '—'}</td>
+      <td class="mgr-cell">${escapeHtml(leg.from.mgr || '—')}</td>
+      <td class="mgr-cell">${escapeHtml(leg.to.mgr || '—')}</td>
       <td class="az-cell">${String(leg.azimuth).padStart(4, '0')}</td>
       <td class="dist-cell">${formatDistance(leg.distance)}</td>
       <td class="time-cell">${formatTime(leg.seconds)}</td>
@@ -335,8 +540,18 @@ function updatePointField(id, field, value) {
   if (item) item.point[field] = value;
 }
 
+function toggleCheckpoints() {
+  checkpointsVisible = !checkpointsVisible;
+  checkpointMarkers.forEach(x => x.marker.getElement().style.display = checkpointsVisible ? '' : 'none');
+  els.toggleCheckpointsBtn.textContent = checkpointsVisible ? 'Hide Checkpoints' : 'Show Checkpoints';
+}
+
 function escapeAttr(value) {
   return String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function exportCSV() {

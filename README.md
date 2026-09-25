@@ -1,56 +1,58 @@
-# NAVEX Navigational Data Sheet Web App
+# NAVEX NDS Web App
 
-A browser-based route plotting and Navigational Data Sheet generator inspired by the route plotting and MGR conversion logic in Project NAVEX's `scripts/index.js`.
+Interactive checkpoint-to-checkpoint navigational data sheet based on the Project NAVEX map workflow.
 
-## Features
+## Map
 
-- Click the map to plot route points.
-- Drag markers to adjust a point.
-- Enter an 8-digit MGR to plot a point.
-- Converts between WGS84 and Kertau RSO / RSO Malaya (EPSG:3168) using the same `epsg.io/trans` approach used by Project NAVEX.
-- Calculates 6400-mil azimuth for each leg.
-- Calculates straight-line distance from MGR coordinates.
-- Calculates estimated movement time from configurable speed.
-- Editable Description and Remarks columns.
-- Delete individual route points or clear the route.
-- Export the generated NDS as CSV.
-- Print the NDS to PDF using the browser print dialog.
-- 4-digit or 6-digit MGR display.
-- Road, satellite, terrain and hybrid map modes.
+This version uses **MapTiler SDK JS / MapLibre**, matching the mapping approach used by Project NAVEX rather than Google Maps.
 
-## Setup
+1. Create a MapTiler Cloud API key.
+2. Open `app.js`.
+3. Replace:
 
-1. Create a Google Maps JavaScript API key with Maps JavaScript API enabled.
-2. In `index.html`, replace:
-
-```text
-YOUR_GOOGLE_MAPS_API_KEY
+```js
+The app asks the user for a MapTiler Cloud API key on first launch and stores it in browser `localStorage` under `navex.maptiler.apiKey`. Use the **MapTiler Key** button to change it later.
 ```
 
-with your browser API key.
+with your key.
 
-3. Serve the folder through a local web server. Do not open `index.html` directly as a `file://` URL.
+The SDK is loaded from the MapTiler CDN.
 
-For example:
+## Checkpoints
+
+Edit `checkpoints.js`:
+
+```js
+window.CHECKPOINTS = [
+  { id: 'CP1', name: 'Checkpoint 1', type: 'CP', mgr: '28465132' },
+  { id: 'SCP1', name: 'Sub-checkpoint 1', type: 'SCP', mgr: '28505155' },
+  { id: 'CP2', name: 'Checkpoint 2', type: 'CP', mgr: '29104876' },
+];
+```
+
+You can also provide WGS84 coordinates directly:
+
+```js
+{ id: 'CP1', name: 'Checkpoint 1', type: 'CP', lat: 1.3521, lng: 103.8198 }
+```
+
+## Route workflow
+
+- Click **CP/SCP** on the map or click **Add** in the checkpoint list to put a fixed checkpoint into the route.
+- Click anywhere else on the map to add a manual route point.
+- Manual points are draggable.
+- Checkpoints in the route are fixed and cannot be dragged.
+- Continue plotting until the route is `CP1 → manual point → SCP1 → manual point → CP2` or any other sequence you need.
+- Use **Hide Checkpoints / Show Checkpoints** to declutter the map without removing the checkpoint data.
+
+## MGR
+
+MGR conversion follows the Project NAVEX approach using EPSG:3168 (Kertau RSO / RSO Malaya) and EPSG:4326 WGS84 through EPSG.io.
+
+## Run locally
 
 ```bash
 python -m http.server 8080
 ```
 
 Then open `http://localhost:8080`.
-
-## Calculation model
-
-Azimuth follows the 6400-mil convention used by Project NAVEX. Distance is derived from MGR easting/northing differences. Estimated time uses:
-
-```text
-time = distance / speed
-```
-
-where speed is the user-configured km/h value.
-
-For 4-digit MGR, one grid digit represents 100 m. For 6-digit MGR, one grid digit represents 10 m.
-
-## Notes
-
-The application intentionally keeps the original NAVEX projection approach rather than attempting to reinterpret the map grid. MGR conversion depends on the external EPSG.io service, while the base map depends on Google Maps.

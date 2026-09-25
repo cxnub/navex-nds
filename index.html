@@ -4,15 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NAVEX Navigational Data Sheet</title>
+  <link rel="stylesheet" href="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
     <div>
       <h1>NAVEX NDS</h1>
-      <p>Plot route points and generate a navigational data sheet.</p>
+      <p>Plot checkpoint-to-checkpoint routes and generate a navigational data sheet.</p>
     </div>
     <div class="top-actions">
+      <button id="mapKeyBtn" class="secondary">MapTiler Key</button>
       <button id="clearBtn" class="secondary">Clear Route</button>
       <button id="exportCsvBtn" class="secondary">Export CSV</button>
       <button id="printBtn" class="primary">Print / PDF</button>
@@ -43,9 +45,20 @@
       <section>
         <h2>Map</h2>
         <label>Map style
-          <select id="mapType"><option value="roadmap">Road</option><option value="satellite">Satellite</option><option value="terrain">Terrain</option><option value="hybrid">Hybrid</option></select>
+          <select id="mapType">
+            <option value="streets">Streets</option>
+            <option value="outdoor">Outdoor</option>
+            <option value="satellite">Satellite</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
         </label>
-        <p class="hint">Click the map to add a point. Drag a point to move it. Click a point to edit its description/remarks.</p>
+        <button id="toggleCheckpointsBtn" class="secondary full-width">Hide Checkpoints</button>
+        <p class="hint">Click the map to add a manual route point. Click a checkpoint to add it to the route. Manual points can be dragged.</p>
+      </section>
+
+      <section>
+        <h2>Checkpoints</h2>
+        <div id="checkpointList" class="checkpoint-list"></div>
       </section>
 
       <section>
@@ -56,7 +69,7 @@
 
     <section class="map-panel">
       <div id="map"></div>
-      <div class="map-help">Click map to add point • Drag markers to adjust • Click marker to edit</div>
+      <div class="map-help">Click map to add manual point • Click CP/SCP to add it • Drag manual points to adjust</div>
     </section>
 
     <section class="panel sheet-panel">
@@ -65,7 +78,7 @@
           <h2>Navigational Data Sheet</h2>
           <span id="routeSummary">0 legs · 0 m · 0:00</span>
         </div>
-        <button id="addRowBtn" class="secondary">+ Blank Row</button>
+        <button id="addRowBtn" class="secondary">+ Manual Point</button>
       </div>
       <div class="table-wrap">
         <table id="ndsTable">
@@ -88,6 +101,16 @@
     </section>
   </main>
 
+  <dialog id="apiKeyDialog">
+    <form method="dialog" id="apiKeyForm">
+      <h3>MapTiler API Key</h3>
+      <p class="dialog-help">Enter your MapTiler Cloud API key. It is stored only in this browser using local storage.</p>
+      <label>API key<input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your MapTiler API key"></label>
+      <div id="apiKeyStatus" class="dialog-status"></div>
+      <div class="dialog-actions"><button id="apiKeyCancelBtn" type="button" value="cancel" class="secondary">Cancel</button><button type="submit" value="save" class="primary">Save & Load Map</button></div>
+    </form>
+  </dialog>
+
   <dialog id="editDialog">
     <form method="dialog" id="editForm">
       <h3>Edit Route Point</h3>
@@ -97,7 +120,8 @@
     </form>
   </dialog>
 
-  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMap" async defer></script>
+  <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.umd.min.js"></script>
+  <script src="checkpoints.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
