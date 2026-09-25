@@ -46,5 +46,17 @@
     return { distance, azimuth: mils === 0 || mils === 6400 ? 6400 : mils };
   }
 
-  window.NavexGrid = { parseMGR, mgrToLatLng, latLngToGrid, formatMGR, leg };
+  function gridToLatLng(x, y) {
+    const [lng, lat] = projection.inverse([x, y]);
+    return { lat, lng };
+  }
+
+  // The point at a grid azimuth (mils) and distance (m) from a start point.
+  function offset(from, azimuthMils, distance) {
+    const start = latLngToGrid(from.lat, from.lng);
+    const angle = azimuthMils * Math.PI / 3200;
+    return gridToLatLng(start.x + distance * Math.sin(angle), start.y + distance * Math.cos(angle));
+  }
+
+  window.NavexGrid = { parseMGR, mgrToLatLng, latLngToGrid, gridToLatLng, formatMGR, leg, offset };
 })();

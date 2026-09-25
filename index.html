@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>NAVEX NDS</title>
   <link rel="stylesheet" href="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.css" />
-  <link rel="stylesheet" href="styles.css?v=20260925g" />
+  <link rel="stylesheet" href="styles.css?v=20260925h" />
 </head>
 <body>
   <header class="topbar">
@@ -85,6 +85,16 @@
     <form id="apiKeyForm">
       <h3>MapTiler API key</h3>
       <p class="dialog-help">The map needs a MapTiler Cloud API key. It is stored only in this browser.</p>
+      <details id="apiKeyHelp" class="key-help">
+        <summary>How to get a free API key</summary>
+        <ol>
+          <li>Open <a href="https://cloud.maptiler.com/account/keys/" target="_blank" rel="noopener">cloud.maptiler.com/account/keys</a> <span class="url">(https://cloud.maptiler.com/account/keys/)</span></li>
+          <li>Sign up for a free MapTiler Cloud account, or log in. No credit card is needed for the free plan.</li>
+          <li>On the <b>API keys</b> page, copy your default key, or create a new one.</li>
+          <li>Recommended: in the key's settings, add <code>cxnub.github.io</code> to the allowed HTTP origins so the key only works on this app.</li>
+          <li>Paste the key below and tap <b>Save &amp; load map</b>.</li>
+        </ol>
+      </details>
       <label>API key<input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your MapTiler API key"></label>
       <div id="apiKeyStatus" class="dialog-status"></div>
       <div class="dialog-actions">
@@ -99,8 +109,8 @@
   <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.15.0/proj4.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
-  <script src="grid.js?v=20260925g"></script>
-  <script src="share.js?v=20260925g"></script>
-  <script src="app.js?v=20260925g"></script>
+  <script src="grid.js?v=20260925h"></script>
+  <script src="share.js?v=20260925h"></script>
+  <script src="app.js?v=20260925h"></script>
 </body>
 </html>

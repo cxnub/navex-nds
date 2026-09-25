@@ -31,6 +31,7 @@ let checkpoints = []; // { id, name, type: 'CP' | 'SCP', mgr, lat, lng }
 let route = [];       // { id, lat, lng, checkpointId, description, remarks }
 let nextPointId = 1;
 let speedKmh = 4;
+let editingPointId = null; // waypoint whose incoming leg is being adjusted
 const els = {};
 
 window.addEventListener('load', init);
@@ -42,7 +43,7 @@ function init() {
     'cpForm', 'cpType', 'cpMgr', 'cpId', 'cpStatus', 'cpCount', 'checkpointList',
     'undoBtn', 'clearBtn', 'routeSummary', 'routeList', 'printSheet', 'mapHint',
     'overlayToggle', 'overlayOpacity', 'overlayOpacityValue',
-    'apiKeyDialog', 'apiKeyForm', 'apiKeyInput', 'apiKeyStatus', 'apiKeyCancelBtn',
+    'apiKeyDialog', 'apiKeyForm', 'apiKeyInput', 'apiKeyStatus', 'apiKeyCancelBtn', 'apiKeyHelp',
   ].forEach(id => { els[id] = document.getElementById(id); });
 
   checkpoints = loadCheckpoints();
@@ -73,7 +74,23 @@ function bindUI() {
     const remove = event.target.closest('[data-remove]');
     if (remove) { removeRoutePoint(Number(remove.dataset.remove)); return; }
     const toggle = event.target.closest('[data-toggle]');
-    if (toggle) toggleSection(toggle);
+    if (toggle) { toggleSection(toggle); return; }
+    const edit = event.target.closest('[data-edit]');
+    if (edit) { startLegEdit(Number(edit.dataset.edit)); return; }
+    if (event.target.closest('[data-cancel]')) stopLegEdit();
+  });
+  els.routeList.addEventListener('submit', event => {
+    const form = event.target.closest('.leg-edit');
+    if (!form) return;
+    event.preventDefault();
+    applyLegEdit(form);
+  });
+  els.routeList.addEventListener('input', event => {
+    const error = event.target.closest('.leg-edit')?.querySelector('.leg-edit-error');
+    if (error) error.textContent = '';
+  });
+  els.routeList.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && event.target.closest('.leg-edit')) stopLegEdit();
   });
   els.undoBtn.addEventListener('click', () => { route.pop(); routeChanged(); });
   els.clearBtn.addEventListener('click', () => {
@@ -188,6 +205,7 @@ function showApiKeyDialog(required) {
   els.apiKeyStatus.textContent = required ? 'A MapTiler API key is required to load the map.' : '';
   els.apiKeyInput.value = getStoredApiKey();
   els.apiKeyCancelBtn.hidden = required;
+  els.apiKeyHelp.open = required;
   if (!els.apiKeyDialog.open) els.apiKeyDialog.showModal();
   setTimeout(() => els.apiKeyInput.focus(), 0);
 }
@@ -644,6 +662,52 @@ function renderRoute() {
   }));
 }
 
+function startLegEdit(pointId) {
+  editingPointId = pointId;
+  renderRoute();
+  els.routeList.querySelector('.leg-edit input[name="azimuth"]')?.select();
+}
+
+function stopLegEdit() {
+  editingPointId = null;
+  renderRoute();
+}
+
+// Move a waypoint to the entered grid azimuth and distance from the previous route point.
+function applyLegEdit(form) {
+  const index = route.findIndex(p => p.id === Number(form.dataset.point));
+  const point = route[index];
+  if (index < 1 || point.checkpointId) { stopLegEdit(); return; }
+  const azimuth = Number(form.elements.azimuth.value);
+  const distance = Number(form.elements.distance.value);
+  const error = form.querySelector('.leg-edit-error');
+  if (!Number.isFinite(azimuth) || azimuth < 0 || azimuth > 6400) { error.textContent = 'Azimuth must be 0–6400 mils.'; return; }
+  if (!Number.isFinite(distance) || distance <= 0 || distance > 50000) { error.textContent = 'Distance must be 1–50000 m.'; return; }
+  Object.assign(point, NavexGrid.offset(route[index - 1], azimuth % 6400, distance));
+  editingPointId = null;
+  routeChanged();
+}
+
+function legNums(leg, point) {
+  const nums = `
+          <div><b>${leg.azimuth}</b><span>mils</span></div>
+          <div><b>${Math.round(leg.distance)}</b><span>m</span></div>`;
+  if (point.checkpointId) return `<div class="leg-nums">${nums}</div>`;
+  if (editingPointId !== point.id) {
+    return `<button type="button" class="leg-nums editable" data-edit="${point.id}" title="Adjust azimuth and distance">${nums}</button>`;
+  }
+  return `
+        <form class="leg-edit" data-point="${point.id}" novalidate>
+          <label><input name="azimuth" type="number" inputmode="numeric" min="0" max="6400" step="1" value="${Number(leg.azimuth)}" aria-label="Azimuth in mils"><span>mils</span></label>
+          <label><input name="distance" type="number" inputmode="numeric" min="1" step="1" value="${Math.round(leg.distance)}" aria-label="Distance in metres"><span>m</span></label>
+          <div class="leg-edit-actions">
+            <button type="submit" class="primary small">Set</button>
+            <button type="button" class="small" data-cancel>Cancel</button>
+          </div>
+          <small class="leg-edit-error" role="alert"></small>
+        </form>`;
+}
+
 function legCard(leg, point) {
   const isWaypoint = !point.checkpointId;
   return `
@@ -652,10 +716,7 @@ function legCard(leg, point) {
       <span class="leg-no">${leg.no}</span>
       <div class="leg-body">
         <div class="leg-to">to <strong>${esc(leg.to)}</strong> <span class="mgr">${esc(leg.toMgr)}</span></div>
-        <div class="leg-nums">
-          <div><b>${leg.azimuth}</b><span>mils</span></div>
-          <div><b>${Math.round(leg.distance)}</b><span>m</span></div>
-        </div>
+        ${legNums(leg, point)}
       </div>
       <button class="icon-btn" data-remove="${point.id}" aria-label="Remove ${esc(leg.to)}" title="Remove ${esc(leg.to)}">×</button>
     </div>`;
