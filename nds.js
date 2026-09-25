@@ -8,6 +8,8 @@ const els = {
   mgrPrecision: document.getElementById('mgrPrecision'),
   body: document.querySelector('#ndsTable tbody'),
   summary: document.getElementById('routeSummary'),
+  shareStatus: document.getElementById('shareStatus'),
+  importFile: document.getElementById('importFile'),
 };
 
 window.addEventListener('load', init);
@@ -19,6 +21,13 @@ function init() {
   els.mgrPrecision.addEventListener('change', () => { state.mgrPrecision = Number(els.mgrPrecision.value) === 6 ? 6 : 4; saveAndRender(); });
   document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
   document.getElementById('printBtn').addEventListener('click', () => window.print());
+  document.getElementById('exportRouteBtn').addEventListener('click', exportRoute);
+  document.getElementById('importRouteBtn').addEventListener('click', () => els.importFile.click());
+  els.importFile.addEventListener('change', () => {
+    const file = els.importFile.files[0];
+    els.importFile.value = '';
+    if (file) importRoute(file);
+  });
   render();
 }
 
@@ -80,6 +89,33 @@ function render() {
   </tr>`).join('');
   els.body.querySelectorAll('[data-field]').forEach(input=>input.addEventListener('change',()=>{ const p=points.find(x=>String(x.id)===input.dataset.id); if(p){p[input.dataset.field]=input.value; saveAndRender();}}));
   els.body.querySelectorAll('[data-delete]').forEach(btn=>btn.addEventListener('click',()=>{ points=points.filter(x=>String(x.id)!==btn.dataset.delete); saveAndRender(); }));
+}
+
+function exportRoute() {
+  const checkpoints = NavexShare.loadStoredCheckpoints();
+  if (!points.length && !checkpoints.length) {
+    els.shareStatus.textContent = 'Nothing to export. Plot a route first.';
+    return;
+  }
+  const data = NavexShare.buildRouteFile({ settings: state, checkpoints, points });
+  NavexShare.downloadRouteFile(data);
+  els.shareStatus.textContent = `Exported ${data.points.length} points, ${data.checkpoints.length} checkpoints and ${data.nds.length} NDS legs.`;
+}
+
+async function importRoute(file) {
+  let imported;
+  try { imported = NavexShare.parseRouteFile(await file.text()); }
+  catch (err) { els.shareStatus.textContent = err.message; return; }
+  if (points.length && !confirm(`Replace the current route (${points.length} points) with the imported one?`)) return;
+
+  NavexShare.saveStoredCheckpoints(NavexShare.mergeCheckpoints(NavexShare.loadStoredCheckpoints(), imported.checkpoints));
+  Object.assign(state, imported.settings);
+  points = imported.points.map((p, i) => ({ ...p, id: i + 1 }));
+  els.speed.value = state.speedKmh;
+  els.distanceUnit.value = state.distanceUnit;
+  els.mgrPrecision.value = state.mgrPrecision;
+  saveAndRender();
+  els.shareStatus.textContent = `Imported ${imported.points.length} points and ${imported.checkpoints.length} checkpoints.`;
 }
 
 function exportCSV() {
