@@ -140,7 +140,7 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 4px 6px 4px;
+  padding: 6px 4px 6px 10px;
   background: var(--panel-2);
   border-radius: 8px;
 }
@@ -190,8 +190,37 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
   user-select: none;
 }
 .drag-handle:hover { color: var(--text); }
+.drag-handle.placeholder { visibility: hidden; cursor: default; }
 .sortable-ghost { opacity: .35; }
 .sortable-chosen { box-shadow: 0 4px 14px rgba(0, 0, 0, .15); }
+.section {
+  margin-top: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.section.open { border-style: dashed; }
+.section-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel-2);
+  text-align: left;
+}
+.section.open .section-head { cursor: default; }
+.chev { width: 12px; color: var(--muted); font-size: 12px; transition: transform .15s; }
+.section.collapsed .chev { transform: rotate(-90deg); }
+.section-title strong { font-family: var(--mono); }
+.section-meta { margin-left: auto; color: var(--muted); font: 12px var(--mono); white-space: nowrap; }
+.section-body { padding: 0 6px 6px; }
+.section.collapsed .section-body { display: none; }
+.section-hint { padding: 8px 4px 2px; color: var(--muted); font-size: 12px; }
+.section .leg { border-color: #e8eae4; }
 .leg-to { font-size: 13px; }
 .leg-to strong { font-family: var(--mono); }
 .leg-nums { display: flex; gap: 22px; margin-top: 4px; }
@@ -316,6 +345,7 @@ dialog input { width: 100%; margin-top: 4px; }
   .print-sheet th { background: #eee; }
   .print-sheet .mono, .print-sheet .num { font-family: var(--mono); }
   .print-sheet .num { text-align: right; font-weight: 700; }
+  .print-sheet .section-row td { background: #f3f3f3; font-weight: 700; }
 }
 
 /* ---------- Phones ---------- */

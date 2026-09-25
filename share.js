@@ -7,18 +7,26 @@
   const VERSION = 3;
   const CHECKPOINT_STORAGE_KEY = 'navex.checkpoints';
 
-  function pointLabel(point, index) {
-    return point.checkpointId || `WP${index + 1}`;
+  // Checkpoints are labelled by their ID; waypoints are numbered WP1, WP2, … along the route.
+  function pointLabels(points) {
+    let n = 0;
+    return points.map(p => p.checkpointId || `WP${++n}`);
   }
 
+  // Each leg also carries its section: the checkpoint-to-checkpoint group it belongs to.
   function buildLegs(points) {
+    const labels = pointLabels(points);
+    let sectionFrom = null;
     return points.slice(1).map((to, i) => {
       const from = points[i];
+      if (from.checkpointId) sectionFrom = from.checkpointId;
+      const nextCp = points.slice(i + 1).find(p => p.checkpointId);
       const { distance, azimuth } = NavexGrid.leg(from, to);
       return {
         no: i + 1,
-        from: pointLabel(from, i),
-        to: pointLabel(to, i + 1),
+        section: `${sectionFrom || '…'} → ${nextCp ? nextCp.checkpointId : '…'}`,
+        from: labels[i],
+        to: labels[i + 1],
         fromMgr: NavexGrid.formatMGR(from.lat, from.lng),
         toMgr: NavexGrid.formatMGR(to.lat, to.lng),
         azimuth: String(azimuth).padStart(4, '0'),
@@ -28,13 +36,14 @@
   }
 
   function buildRouteFile({ checkpoints, points }) {
+    const labels = pointLabels(points);
     return {
       format: FORMAT,
       version: VERSION,
       exportedAt: new Date().toISOString(),
       checkpoints: checkpoints.map(({ id, name, type, mgr, lat, lng }) => ({ id, name: name || '', type, mgr, lat, lng })),
       points: points.map((p, i) => ({
-        label: pointLabel(p, i),
+        label: labels[i],
         mgr: NavexGrid.formatMGR(p.lat, p.lng),
         lat: p.lat,
         lng: p.lng,
@@ -42,6 +51,7 @@
       })),
       nds: buildLegs(points).map(leg => ({
         leg: leg.no,
+        section: leg.section,
         from: leg.from,
         fromMgr: leg.fromMgr,
         to: leg.to,
@@ -123,7 +133,7 @@
   }
 
   window.NavexShare = {
-    pointLabel, buildLegs, buildRouteFile, parseRouteFile, mergeCheckpoints,
+    pointLabels, buildLegs, buildRouteFile, parseRouteFile, mergeCheckpoints,
     loadStoredCheckpoints, saveStoredCheckpoints, downloadRouteFile, notify,
   };
 })();

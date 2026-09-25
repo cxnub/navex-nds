@@ -34,13 +34,8 @@ function init() {
 
   checkpoints = loadCheckpoints();
   route = loadRoute();
+  normalizeRoute();
   bindUI();
-  Sortable.create(els.routeList, {
-    handle: '.drag-handle',
-    draggable: '[data-point-id]',
-    animation: 150,
-    onEnd: event => { if (event.oldIndex !== event.newIndex) reorderRoute(); },
-  });
   renderPanel();
 
   const key = getStoredApiKey();
@@ -62,8 +57,10 @@ function bindUI() {
   });
 
   els.routeList.addEventListener('click', event => {
-    const btn = event.target.closest('[data-remove]');
-    if (btn) removeRoutePoint(Number(btn.dataset.remove));
+    const remove = event.target.closest('[data-remove]');
+    if (remove) { removeRoutePoint(Number(remove.dataset.remove)); return; }
+    const toggle = event.target.closest('[data-toggle]');
+    if (toggle) toggleSection(toggle);
   });
   els.undoBtn.addEventListener('click', () => { route.pop(); routeChanged(); });
   els.clearBtn.addEventListener('click', () => {
@@ -169,7 +166,13 @@ function initMap(apiKey) {
   });
   map.on('style.load', () => { addRouteLayer(); updateRouteLine(); });
   map.on('load', () => { drawMarkers(); fitTo([...route, ...checkpoints]); });
-  map.on('click', event => addRoutePoint({ lat: event.lngLat.lat, lng: event.lngLat.lng }));
+  map.on('click', event => {
+    if (!route.length) {
+      NavexShare.notify(checkpoints.length ? 'Start the route at a checkpoint: tap a checkpoint first.' : 'Add a checkpoint first, then start the route from it.');
+      return;
+    }
+    addRoutePoint({ lat: event.lngLat.lat, lng: event.lngLat.lng });
+  });
 }
 
 function routeGeoJSON() {
@@ -214,10 +217,11 @@ function drawMarkers() {
     mapMarkers.push(new maptilersdk.Marker({ element: el, anchor: 'center' }).setLngLat([cp.lng, cp.lat]).addTo(map));
   });
 
+  const labels = NavexShare.pointLabels(route);
   route.forEach((p, i) => {
     const el = document.createElement('div');
     el.className = `route-marker${p.checkpointId ? ' on-cp' : ''}`;
-    el.title = `${NavexShare.pointLabel(p, i)} — drag to adjust`;
+    el.title = `${labels[i]} — drag to adjust`;
     el.addEventListener('click', event => event.stopPropagation());
     const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !p.checkpointId })
       .setLngLat([p.lng, p.lat])
@@ -305,19 +309,56 @@ function addRoutePoint(pos, checkpointId = null) {
   routeChanged();
 }
 
-// Apply the order of the route list after a drag.
-function reorderRoute() {
-  const ids = [...els.routeList.querySelectorAll('[data-point-id]')].map(el => Number(el.dataset.pointId));
-  route = ids.map(id => route.find(p => p.id === id)).filter(Boolean);
+// Waypoints must sit between checkpoints: drop any before the first checkpoint.
+function normalizeRoute() {
+  const first = route.findIndex(p => p.checkpointId);
+  const dropped = first < 0 ? route.length : first;
+  if (dropped) route = route.slice(dropped);
+  return dropped;
+}
+
+// Checkpoint-to-checkpoint sections as [from, to] indexes into the route.
+// The last section is open when waypoints follow the last checkpoint.
+function routeSections() {
+  const sections = [];
+  let from = 0;
+  for (let i = 1; i < route.length; i++) {
+    if (route[i].checkpointId) {
+      sections.push({ from, to: i, open: false });
+      from = i;
+    }
+  }
+  if (from < route.length - 1) sections.push({ from, to: route.length - 1, open: true });
+  return sections;
+}
+
+// Rebuild the route from the waypoint order in each section after a drag.
+// Section i always starts at the i-th checkpoint of the route.
+function applyWaypointOrder() {
+  const byId = new Map(route.map(p => [p.id, p]));
+  const bodies = [...els.routeList.querySelectorAll('.section-body')];
+  route = route.filter(p => p.checkpointId).flatMap((anchor, i) => [
+    anchor,
+    ...[...(bodies[i]?.querySelectorAll('[data-wp-id]') ?? [])].map(el => byId.get(Number(el.dataset.wpId))),
+  ]);
   routeChanged();
 }
 
 function removeRoutePoint(id) {
-  route = route.filter(p => p.id !== id);
+  const index = route.findIndex(p => p.id === id);
+  if (index < 0) return;
+  if (index === 0) {
+    const nextCp = route.slice(1).findIndex(p => p.checkpointId);
+    const orphans = nextCp < 0 ? route.length - 1 : nextCp;
+    if (orphans && !confirm(`Removing the start checkpoint also removes the ${orphans} waypoint${orphans === 1 ? '' : 's'} before the next checkpoint. Continue?`)) return;
+  }
+  route.splice(index, 1);
   routeChanged();
 }
 
 function routeChanged(redrawMarkers = true) {
+  const dropped = normalizeRoute();
+  if (dropped) NavexShare.notify(`Removed ${dropped} waypoint${dropped === 1 ? '' : 's'} that came before the first checkpoint.`);
   saveRoute();
   updateRouteLine();
   if (redrawMarkers) drawMarkers();
@@ -354,11 +395,16 @@ function renderPrintSheet() {
   const legs = NavexShare.buildLegs(route);
   const total = legs.reduce((sum, leg) => sum + leg.distance, 0);
   const date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-  const legRows = legs.map(leg => `<tr>
+  const legRows = routeSections().map(section => {
+    const sectionLegs = legs.slice(section.from, section.to);
+    const distance = sectionLegs.reduce((sum, leg) => sum + leg.distance, 0);
+    return `<tr class="section-row"><td colspan="7">${esc(sectionLegs[0].section)} · ${formatDistance(distance)}</td></tr>`
+      + sectionLegs.map(leg => `<tr>
       <td>${leg.no}</td><td>${esc(leg.from)}</td><td class="mono">${esc(leg.fromMgr)}</td>
       <td>${esc(leg.to)}</td><td class="mono">${esc(leg.toMgr)}</td>
       <td class="num">${leg.azimuth}</td><td class="num">${Math.round(leg.distance)}</td>
     </tr>`).join('');
+  }).join('');
   const cpRows = sortedCheckpoints().map(cp => `<tr><td>${esc(cp.id)}</td><td>${cp.type}</td><td class="mono">${esc(cp.mgr)}</td></tr>`).join('');
   els.printSheet.innerHTML = `
     <h1>Navigational Data Sheet</h1>
@@ -397,35 +443,86 @@ function renderCheckpoints() {
     </div>`).join('');
 }
 
+const collapsedSections = new Set();
+
+function sectionKey(section) {
+  return `${route[section.from].id}-${section.open ? 'open' : route[section.to].id}`;
+}
+
+function toggleSection(button) {
+  const key = button.dataset.toggle;
+  const collapsed = !collapsedSections.has(key);
+  if (collapsed) collapsedSections.add(key);
+  else collapsedSections.delete(key);
+  button.closest('.section').classList.toggle('collapsed', collapsed);
+  button.setAttribute('aria-expanded', String(!collapsed));
+}
+
 function renderRoute() {
   els.mapHint.hidden = route.length > 0;
   els.undoBtn.disabled = !route.length;
   els.clearBtn.disabled = !route.length;
   if (!route.length) {
     els.routeSummary.textContent = '';
-    els.routeList.innerHTML = '<p class="empty">Tap the map to add route points, or tap a checkpoint to route to it.</p>';
+    els.routeList.innerHTML = `<p class="empty">${checkpoints.length
+      ? 'Tap a checkpoint (on the map or + Route) to start the route.'
+      : 'Add checkpoints above, then tap one to start the route.'}</p>`;
     return;
   }
 
+  const labels = NavexShare.pointLabels(route);
   const legs = NavexShare.buildLegs(route);
   const total = legs.reduce((sum, leg) => sum + leg.distance, 0);
   els.routeSummary.innerHTML = legs.length
     ? `<b>${legs.length}</b> leg${legs.length === 1 ? '' : 's'} · <b>${formatDistance(total)}</b> total`
-    : 'Add another point to get the first leg.';
+    : 'Tap the map to add waypoints, or tap the next checkpoint.';
 
   const start = route[0];
-  const startLabel = NavexShare.pointLabel(start, 0);
+  const sections = routeSections().map(section => {
+    const key = sectionKey(section);
+    const collapsed = !section.open && collapsedSections.has(key);
+    const sectionLegs = legs.slice(section.from, section.to);
+    const distance = sectionLegs.reduce((sum, leg) => sum + leg.distance, 0);
+    const toLabel = section.open ? 'next checkpoint' : labels[section.to];
+    return `
+    <section class="section${section.open ? ' open' : ''}${collapsed ? ' collapsed' : ''}">
+      <button type="button" class="section-head"${section.open ? '' : ` data-toggle="${key}" aria-expanded="${!collapsed}"`}>
+        <span class="chev" aria-hidden="true">${section.open ? '' : '▾'}</span>
+        <span class="section-title"><strong>${esc(labels[section.from])}</strong> → <strong>${esc(toLabel)}</strong></span>
+        <span class="section-meta">${sectionLegs.length} leg${sectionLegs.length === 1 ? '' : 's'} · ${formatDistance(distance)}</span>
+      </button>
+      <div class="section-body">
+        ${sectionLegs.map(leg => legCard(leg, route[leg.no])).join('')}
+        ${section.open ? '<p class="section-hint">Tap the map to add waypoints, then tap a checkpoint to close this section.</p>' : ''}
+      </div>
+    </section>`;
+  }).join('');
+
   els.routeList.innerHTML = `
-    <div class="route-start" data-point-id="${start.id}">
-      <span class="drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
+    <div class="route-start">
       <span class="tag">Start</span>
-      <strong>${esc(startLabel)}</strong>
+      <strong>${esc(labels[0])}</strong>
       <span class="mgr">${esc(NavexGrid.formatMGR(start.lat, start.lng))}</span>
-      <button class="icon-btn" data-remove="${start.id}" aria-label="Remove ${esc(startLabel)}" title="Remove ${esc(startLabel)}">×</button>
+      <button class="icon-btn" data-remove="${start.id}" aria-label="Remove ${esc(labels[0])}" title="Remove ${esc(labels[0])}">×</button>
     </div>
-    ${legs.map((leg, i) => `
-    <div class="leg" data-point-id="${route[i + 1].id}">
-      <span class="drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
+    ${sections}`;
+
+  // Waypoints can be dragged within a section or into another one; checkpoints stay fixed.
+  els.routeList.querySelectorAll('.section-body').forEach(body => Sortable.create(body, {
+    group: 'waypoints',
+    handle: '.drag-handle',
+    draggable: '[data-wp-id]',
+    animation: 150,
+    onMove: event => !(event.related.classList.contains('leg-end') && event.willInsertAfter),
+    onEnd: event => { if (event.from !== event.to || event.oldIndex !== event.newIndex) applyWaypointOrder(); },
+  }));
+}
+
+function legCard(leg, point) {
+  const isWaypoint = !point.checkpointId;
+  return `
+    <div class="leg${isWaypoint ? '' : ' leg-end'}"${isWaypoint ? ` data-wp-id="${point.id}"` : ''}>
+      <span class="drag-handle${isWaypoint ? '' : ' placeholder'}"${isWaypoint ? ' title="Drag to reorder"' : ''} aria-hidden="true">⠿</span>
       <span class="leg-no">${leg.no}</span>
       <div class="leg-body">
         <div class="leg-to">to <strong>${esc(leg.to)}</strong> <span class="mgr">${esc(leg.toMgr)}</span></div>
@@ -434,8 +531,8 @@ function renderRoute() {
           <div><b>${Math.round(leg.distance)}</b><span>m</span></div>
         </div>
       </div>
-      <button class="icon-btn" data-remove="${route[i + 1].id}" aria-label="Remove ${esc(leg.to)}" title="Remove ${esc(leg.to)}">×</button>
-    </div>`).join('')}`;
+      <button class="icon-btn" data-remove="${point.id}" aria-label="Remove ${esc(leg.to)}" title="Remove ${esc(leg.to)}">×</button>
+    </div>`;
 }
 
 /* ---------- Helpers ---------- */
