@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NAVEX Navigational Data Sheet</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>NAVEX NDS</h1>
+      <p>Plot route points and generate a navigational data sheet.</p>
+    </div>
+    <div class="top-actions">
+      <button id="clearBtn" class="secondary">Clear Route</button>
+      <button id="exportCsvBtn" class="secondary">Export CSV</button>
+      <button id="printBtn" class="primary">Print / PDF</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel controls">
+      <section>
+        <h2>Route Settings</h2>
+        <label>Estimated speed
+          <div class="input-row"><input id="speed" type="number" min="0.1" step="0.1" value="4.0"><span>km/h</span></div>
+        </label>
+        <label>Distance unit
+          <select id="distanceUnit"><option value="m">metres</option><option value="km">kilometres</option></select>
+        </label>
+        <label>MGR display precision
+          <select id="mgrPrecision"><option value="4">4-digit</option><option value="6">6-digit</option></select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Add MGR</h2>
+        <div class="input-row"><input id="mgrInput" inputmode="numeric" maxlength="8" placeholder="e.g. 2846 5132"><button id="addMgrBtn" class="primary">Plot</button></div>
+        <small id="mgrStatus">Enter an 8-digit MGR without spaces.</small>
+      </section>
+
+      <section>
+        <h2>Map</h2>
+        <label>Map style
+          <select id="mapType"><option value="roadmap">Road</option><option value="satellite">Satellite</option><option value="terrain">Terrain</option><option value="hybrid">Hybrid</option></select>
+        </label>
+        <p class="hint">Click the map to add a point. Drag a point to move it. Click a point to edit its description/remarks.</p>
+      </section>
+
+      <section>
+        <h2>Route Points</h2>
+        <div id="pointList" class="point-list"></div>
+      </section>
+    </aside>
+
+    <section class="map-panel">
+      <div id="map"></div>
+      <div class="map-help">Click map to add point • Drag markers to adjust • Click marker to edit</div>
+    </section>
+
+    <section class="panel sheet-panel">
+      <div class="sheet-header">
+        <div>
+          <h2>Navigational Data Sheet</h2>
+          <span id="routeSummary">0 legs · 0 m · 0:00</span>
+        </div>
+        <button id="addRowBtn" class="secondary">+ Blank Row</button>
+      </div>
+      <div class="table-wrap">
+        <table id="ndsTable">
+          <thead>
+            <tr>
+              <th>No.</th>
+              <th>From MGR</th>
+              <th>To MGR</th>
+              <th>Azimuth</th>
+              <th>Distance</th>
+              <th>Est. Time</th>
+              <th>Description</th>
+              <th>Remarks</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="editDialog">
+    <form method="dialog" id="editForm">
+      <h3>Edit Route Point</h3>
+      <label>Description<input id="editDescription" type="text" maxlength="120"></label>
+      <label>Remarks<textarea id="editRemarks" rows="4" maxlength="500"></textarea></label>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button value="save" class="primary">Save</button></div>
+    </form>
+  </dialog>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMap" async defer></script>
+  <script src="app.js"></script>
+</body>
+</html>
