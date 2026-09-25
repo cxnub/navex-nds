@@ -30,7 +30,9 @@ Checkpoints are saved in browser `localStorage` under `navex.checkpoints`.
 
 ## MGR
 
-MGR conversion follows the Project NAVEX approach using EPSG:3168 (Kertau RSO / RSO Malaya) and EPSG:4326 WGS84 through EPSG.io.
+MGR conversion uses EPSG:3168 (Kertau RSO / RSO Malaya) ↔ EPSG:4326 (WGS84), calculated in the browser with [proj4js](https://github.com/proj4js/proj4js) (see `grid.js`). No network service is needed.
+
+An 8-digit MGR `2846 5132` is easting 6 2846 0 m, northing 1 5132 0 m (10 m resolution). Leg distances and azimuths (mils) are calculated from grid coordinates in metres.
 
 ## Run locally
 

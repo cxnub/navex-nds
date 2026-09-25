@@ -1,9 +1,8 @@
 /*
  * NAVEX NDS
  * MapTiler / MapLibre implementation based on Project NAVEX's map workflow.
- * MGR conversion uses EPSG:3168 <-> EPSG:4326, matching Project NAVEX.
+ * MGR conversion uses EPSG:3168 <-> EPSG:4326 locally via grid.js.
  *
- * Replace YOUR_MAPTILER_API_KEY with your MapTiler Cloud browser key.
  */
 
 const MAPTILER_STORAGE_KEY = 'navex.maptiler.apiKey';
@@ -187,7 +186,7 @@ function bindUI() {
   });
   els.mgrPrecision.addEventListener('change', () => {
     state.mgrPrecision = Number(els.mgrPrecision.value);
-    convertAllMGRs().then(render).catch(() => render());
+    render();
   });
   els.mapType.addEventListener('change', () => {
     const style = MAP_STYLES[els.mapType.value];
@@ -241,7 +240,7 @@ async function loadSavedRoute() {
         const pos = marker.getLngLat();
         point.lat = pos.lat; point.lng = pos.lng; point.mgr = null;
         syncPolyline();
-        convertAllMGRs().then(render).catch(() => render());
+        render();
       });
     }
     markers.push({ point, marker });
@@ -269,7 +268,7 @@ async function loadCheckpoints() {
   for (const cp of checkpoints) {
     try {
       if (!Number.isFinite(Number(cp.lat)) || !Number.isFinite(Number(cp.lng))) {
-        Object.assign(cp, await mgrToLatLng(cp.mgr));
+        Object.assign(cp, NavexGrid.mgrToLatLng(cp.mgr));
       }
       createCheckpointMarker(cp);
     } catch (err) {
@@ -304,21 +303,19 @@ function addCheckpoint() {
     return;
   }
 
-  els.cpStatus.textContent = 'Converting MGR…';
-  mgrToLatLng(raw).then(latLng => {
-    const cp = { id, name: els.cpName.value.trim(), type, mgr: `${raw.slice(0, 4)} ${raw.slice(4)}`, ...latLng };
-    checkpoints.push(cp);
-    saveCheckpoints();
-    createCheckpointMarker(cp);
-    renderCheckpointList();
-    map.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
-    els.cpId.value = '';
-    els.cpMgr.value = '';
-    els.cpName.value = '';
-    els.cpStatus.textContent = `${id} added.`;
-  }).catch(() => {
-    els.cpStatus.textContent = 'MGR conversion failed.';
-  });
+  let latLng;
+  try { latLng = NavexGrid.mgrToLatLng(raw); }
+  catch { els.cpStatus.textContent = 'MGR conversion failed.'; return; }
+  const cp = { id, name: els.cpName.value.trim(), type, mgr: `${raw.slice(0, 4)} ${raw.slice(4)}`, ...latLng };
+  checkpoints.push(cp);
+  saveCheckpoints();
+  createCheckpointMarker(cp);
+  renderCheckpointList();
+  map.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
+  els.cpId.value = '';
+  els.cpMgr.value = '';
+  els.cpName.value = '';
+  els.cpStatus.textContent = `${id} added.`;
 }
 
 function removeCheckpoint(id) {
@@ -377,7 +374,7 @@ function addPoint(latLng, checkpoint = null, fixed = false) {
     id: nextId++,
     lat: Number(latLng.lat),
     lng: Number(latLng.lng),
-    mgr: checkpoint?.mgr ? formatInputMGR(checkpoint.mgr) : null,
+    mgr: null,
     description: checkpoint?.name || '',
     remarks: '',
     checkpointId: checkpoint?.id || null,
@@ -406,14 +403,13 @@ function addPoint(latLng, checkpoint = null, fixed = false) {
       point.lng = pos.lng;
       point.mgr = null;
       syncPolyline();
-      convertAllMGRs().then(render).catch(() => render());
+      render();
     });
   }
 
   markers.push({ point, marker });
   syncPolyline();
-  if (point.mgr) render();
-  else convertAllMGRs().then(render).catch(() => render());
+  render();
 }
 
 function removePoint(id) {
@@ -422,7 +418,7 @@ function removePoint(id) {
   markers[i].marker.remove();
   markers.splice(i, 1);
   syncPolyline();
-  convertAllMGRs().then(render).catch(() => render());
+  render();
 }
 
 function syncPolyline() {
@@ -459,52 +455,17 @@ function addMGR() {
     return;
   }
 
-  els.mgrStatus.textContent = 'Converting MGR…';
-  mgrToLatLng(raw).then(latLng => {
-    addPoint(latLng, null, false);
-    map.flyTo({ center: [latLng.lng, latLng.lat], zoom: Math.max(map.getZoom(), 14) });
-    els.mgrInput.value = '';
-    els.mgrStatus.textContent = 'MGR plotted.';
-  }).catch(() => {
-    els.mgrStatus.textContent = 'MGR conversion failed.';
-  });
+  let latLng;
+  try { latLng = NavexGrid.mgrToLatLng(raw); }
+  catch { els.mgrStatus.textContent = 'MGR conversion failed.'; return; }
+  addPoint(latLng, null, false);
+  map.flyTo({ center: [latLng.lng, latLng.lat], zoom: Math.max(map.getZoom(), 14) });
+  els.mgrInput.value = '';
+  els.mgrStatus.textContent = 'MGR plotted.';
 }
 
-function mgrToLatLng(mgr) {
-  const raw = formatInputMGR(mgr).replace(/\s/g, '');
-  if (!/^\d{8}$/.test(raw)) return Promise.reject(new Error('Invalid MGR'));
-  const e = raw.slice(0, 4);
-  const n = raw.slice(4, 8);
-  const x = `6${e}0`;
-  const y = `1${n}0`;
-  return new Promise((resolve, reject) => {
-    jsonp(`https://epsg.io/trans?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&s_srs=3168&t_srs=4326`, response => {
-      if (!response || !Number.isFinite(Number(response.x)) || !Number.isFinite(Number(response.y))) {
-        reject(new Error('MGR conversion failed'));
-        return;
-      }
-      resolve({ lng: Number(response.x), lat: Number(response.y) });
-    });
-  });
-}
-
-async function convertAllMGRs() {
-  if (!markers.length) return [];
-  const data = markers.map(x => `${x.point.lng},${x.point.lat}`).join(';');
-  return new Promise((resolve, reject) => {
-    jsonp(`https://epsg.io/trans?data=${encodeURIComponent(data)}&s_srs=4326&t_srs=3168`, response => {
-      try {
-        if (!Array.isArray(response)) throw new Error('Bad conversion response');
-        response.forEach((p, i) => {
-          if (markers[i].point.checkpointId && markers[i].point.mgr) return;
-          const e = String(p.x).replace(/\D/g, '').slice(0, 6);
-          const n = String(p.y).replace(/\D/g, '').slice(0, 6);
-          markers[i].point.mgr = formatMGRDigits(e, n, state.mgrPrecision);
-        });
-        resolve(response);
-      } catch (err) { reject(err); }
-    });
-  });
+function updateMGRs() {
+  markers.forEach(x => { x.point.mgr = NavexGrid.formatMGR(x.point.lat, x.point.lng, state.mgrPrecision); });
 }
 
 // Keep only digits and insert the easting/northing space after the 4th digit, preserving the caret.
@@ -517,63 +478,16 @@ function autoFormatMGRInput(input) {
   input.setSelectionRange(pos, pos);
 }
 
-function formatInputMGR(mgr) {
-  return String(mgr || '').replace(/\s+/g, '');
-}
-
-function formatMGRDigits(e, n, precision) {
-  if (!e || !n) return '—';
-  return `${e.slice(0, precision)} ${n.slice(0, precision)}`;
-}
-
-function jsonp(url, callback) {
-  const cb = `navexCallback_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-  const script = document.createElement('script');
-  let finished = false;
-  const done = data => {
-    if (finished) return;
-    finished = true;
-    delete window[cb];
-    script.remove();
-    callback(data);
-  };
-  window[cb] = done;
-  script.onerror = () => done(null);
-  script.src = `${url}&callback=${cb}`;
-  document.body.appendChild(script);
-}
-
 function calculateLegs() {
   const legs = [];
   for (let i = 0; i < markers.length - 1; i++) {
     const a = markers[i].point;
     const b = markers[i + 1].point;
-    const e1 = mgrNumber(a.mgr, 0);
-    const n1 = mgrNumber(a.mgr, 1);
-    const e2 = mgrNumber(b.mgr, 0);
-    const n2 = mgrNumber(b.mgr, 1);
-    const eDiff = e2 - e1;
-    const nDiff = n2 - n1;
-    const gridUnitMeters = state.mgrPrecision === 6 ? 10 : 100;
-    const distance = Math.sqrt(eDiff ** 2 + nDiff ** 2) * gridUnitMeters;
-    const azimuth = calcAzimuth(eDiff, nDiff);
+    const { distance, azimuth } = NavexGrid.leg(a, b);
     const seconds = distance / (state.speedKmh * 1000 / 3600);
     legs.push({ from: a, to: b, distance, azimuth, seconds, description: b.description || '', remarks: b.remarks || '' });
   }
   return legs;
-}
-
-function mgrNumber(mgr, index) {
-  if (!mgr || mgr === '—') return 0;
-  return Number(mgr.replace(/\s/g, '').slice(index * state.mgrPrecision, (index + 1) * state.mgrPrecision));
-}
-
-function calcAzimuth(eDiff, nDiff) {
-  if (eDiff === 0) return nDiff >= 0 ? 6400 : 3200;
-  const angle = Math.atan(nDiff / eDiff);
-  let mil = eDiff > 0 ? 1600 - (angle / (2 * Math.PI)) * 6400 : 4800 - (angle / (2 * Math.PI)) * 6400;
-  mil = Math.round(mil);
-  return ((mil % 6400) + 6400) % 6400;
 }
 
 function formatDistance(m) {
@@ -589,6 +503,7 @@ function formatTime(seconds) {
 }
 
 function render() {
+  updateMGRs();
   saveRoute();
   const legs = calculateLegs();
   renderPointList();

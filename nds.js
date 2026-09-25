@@ -46,28 +46,13 @@ function saveAndRender() {
   render();
 }
 
-function mgrNumber(mgr, index) {
-  if (!mgr || mgr === '—') return 0;
-  return Number(String(mgr).replace(/\s/g, '').slice(index * state.mgrPrecision, (index + 1) * state.mgrPrecision));
-}
-
-function calcAzimuth(eDiff, nDiff) {
-  if (eDiff === 0) return nDiff >= 0 ? 6400 : 3200;
-  const angle = Math.atan(nDiff / eDiff);
-  let mil = eDiff > 0 ? 1600 - (angle / (2 * Math.PI)) * 6400 : 4800 - (angle / (2 * Math.PI)) * 6400;
-  return ((Math.round(mil) % 6400) + 6400) % 6400;
-}
-
 function calculateLegs() {
   const legs = [];
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i], b = points[i + 1];
-    const eDiff = mgrNumber(b.mgr, 0) - mgrNumber(a.mgr, 0);
-    const nDiff = mgrNumber(b.mgr, 1) - mgrNumber(a.mgr, 1);
-    const unit = state.mgrPrecision === 6 ? 10 : 100;
-    const distance = Math.sqrt(eDiff ** 2 + nDiff ** 2) * unit;
+    const { distance, azimuth } = NavexGrid.leg(a, b);
     const seconds = distance / (state.speedKmh * 1000 / 3600);
-    legs.push({ from:a, to:b, distance, seconds, azimuth:calcAzimuth(eDiff,nDiff) });
+    legs.push({ from:a, to:b, distance, seconds, azimuth });
   }
   return legs;
 }
@@ -77,6 +62,7 @@ function formatTime(seconds) { const t=Math.round(seconds), h=Math.floor(t/3600)
 function esc(v) { return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function render() {
+  points.forEach(p => { p.mgr = NavexGrid.formatMGR(p.lat, p.lng, state.mgrPrecision); });
   const legs = calculateLegs();
   const totalDistance = legs.reduce((s,x)=>s+x.distance,0);
   const totalSeconds = legs.reduce((s,x)=>s+x.seconds,0);
