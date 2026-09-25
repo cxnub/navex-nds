@@ -13,7 +13,7 @@ Checkpoints and the route are saved in the browser.
 
 ## Map
 
-The map uses **MapTiler SDK JS / MapLibre**, with Topo (default) and Satellite styles. The app asks for a MapTiler Cloud API key on first launch and stores it in the browser. Use the ⚙ button to change it.
+The map uses **MapTiler SDK JS / MapLibre**, with Topo (default) and Satellite styles. The **1:50K map (2005)** checkbox overlays the 2005 1:50,000 topographic map of Singapore from the NUS Libraries WMTS (`https://libmaps.nus.edu.sg/services/2005_50K/wmts`, zoom 9–16), with an adjustable opacity. The app asks for a MapTiler Cloud API key on first launch and stores it in the browser. Use the ⚙ button to change it.
 
 ## MGR
 

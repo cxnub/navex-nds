@@ -16,6 +16,16 @@ const MAP_STYLES = {
 
 let map = null;
 let mapStyle = 'topo';
+
+// 2005 1:50,000 topographic map of Singapore (NUS Libraries WMTS, Web Mercator). Note the {y}/{x} order.
+const OVERLAY_STORAGE_KEY = 'navex.overlay';
+const TOPO50K = {
+  tiles: ['https://libmaps.nus.edu.sg/services/2005_50K/{z}/{y}/{x}'],
+  bounds: [103.546, 1.104, 104.162, 1.533],
+  minzoom: 9,
+  maxzoom: 16,
+};
+const overlay = loadOverlaySettings();
 let mapMarkers = [];
 let checkpoints = []; // { id, name, type: 'CP' | 'SCP', mgr, lat, lng }
 let route = [];       // { id, lat, lng, checkpointId, description, remarks }
@@ -31,6 +41,7 @@ function init() {
     'ndsDialog', 'ndsSummary', 'ndsSpeed', 'ndsTable', 'ndsPrintBtn', 'ndsCloseBtn',
     'cpForm', 'cpType', 'cpMgr', 'cpId', 'cpStatus', 'cpCount', 'checkpointList',
     'undoBtn', 'clearBtn', 'routeSummary', 'routeList', 'printSheet', 'mapHint',
+    'overlayToggle', 'overlayOpacity', 'overlayOpacityValue',
     'apiKeyDialog', 'apiKeyForm', 'apiKeyInput', 'apiKeyStatus', 'apiKeyCancelBtn',
   ].forEach(id => { els[id] = document.getElementById(id); });
 
@@ -92,12 +103,22 @@ function bindUI() {
     saveRoute();
   });
 
+  renderOverlayControls();
+  els.overlayToggle.addEventListener('change', () => {
+    overlay.on = els.overlayToggle.checked;
+    applyOverlay();
+  });
+  els.overlayOpacity.addEventListener('input', () => {
+    overlay.opacity = Number(els.overlayOpacity.value) / 100;
+    applyOverlay();
+  });
+
   document.querySelector('.map-style').addEventListener('click', event => {
     const btn = event.target.closest('[data-style]');
     if (!btn || btn.dataset.style === mapStyle) return;
     mapStyle = btn.dataset.style;
     document.querySelectorAll('.map-style [data-style]').forEach(b => b.classList.toggle('active', b === btn));
-    // diff: false forces a full reload so 'style.load' fires and re-adds the route layer;
+    // diff: false forces a full reload so 'style.load' fires and re-adds the overlay and route layers;
     // a diffed style change silently drops layers that aren't in the new style.
     map?.setStyle(MAP_STYLES[mapStyle], { diff: false });
   });
@@ -184,7 +205,7 @@ function initMap(apiKey) {
     geolocateControl: 'top-right',
     scaleControl: 'bottom-left',
   });
-  map.on('style.load', () => { addRouteLayer(); updateRouteLine(); });
+  map.on('style.load', () => { addOverlayLayer(); addRouteLayer(); updateRouteLine(); });
   map.on('load', () => { drawMarkers(); fitTo([...route, ...checkpoints]); });
   map.on('click', event => {
     if (!route.length) {
@@ -193,6 +214,47 @@ function initMap(apiKey) {
     }
     addRoutePoint({ lat: event.lngLat.lat, lng: event.lngLat.lng });
   });
+}
+
+function loadOverlaySettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY) || 'null');
+    const opacity = Number(saved?.opacity);
+    return { on: Boolean(saved?.on), opacity: opacity >= 0.1 && opacity <= 1 ? opacity : 0.7 };
+  } catch { return { on: false, opacity: 0.7 }; }
+}
+
+function renderOverlayControls() {
+  els.overlayToggle.checked = overlay.on;
+  els.overlayOpacity.value = Math.round(overlay.opacity * 100);
+  els.overlayOpacityValue.textContent = `${Math.round(overlay.opacity * 100)}%`;
+  els.overlayOpacity.parentElement.hidden = !overlay.on;
+}
+
+// The 1:50K map sits above the base map and below the route line.
+function addOverlayLayer() {
+  if (map.getSource('topo50k')) return;
+  map.addSource('topo50k', {
+    type: 'raster',
+    tileSize: 256,
+    attribution: '1:50,000 map (2005) via NUS Libraries',
+    ...TOPO50K,
+  });
+  map.addLayer({
+    id: 'topo50k',
+    type: 'raster',
+    source: 'topo50k',
+    layout: { visibility: overlay.on ? 'visible' : 'none' },
+    paint: { 'raster-opacity': overlay.opacity },
+  }, map.getLayer('route-line') ? 'route-line' : undefined);
+}
+
+function applyOverlay() {
+  renderOverlayControls();
+  try { localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(overlay)); } catch { /* not persisted */ }
+  if (!map?.getLayer('topo50k')) return;
+  map.setLayoutProperty('topo50k', 'visibility', overlay.on ? 'visible' : 'none');
+  map.setPaintProperty('topo50k', 'raster-opacity', overlay.opacity);
 }
 
 function routeGeoJSON() {

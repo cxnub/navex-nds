@@ -232,11 +232,17 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .map-wrap { position: relative; min-height: 0; }
 #map { position: absolute; inset: 0; }
 
-.map-style {
+.map-controls {
   position: absolute;
   top: 10px;
   left: 10px;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.map-style {
   display: flex;
   background: #fff;
   border-radius: 6px;
@@ -245,6 +251,20 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 }
 .map-style button { border: 0; border-radius: 0; padding: 6px 12px; font-size: 12px; font-weight: 600; background: #fff; }
 .map-style button.active { background: var(--text); color: #fff; }
+.overlay-ctl {
+  padding: 6px 10px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .1);
+  font-size: 12px;
+  font-weight: 600;
+}
+.overlay-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.overlay-toggle input { margin: 0; min-height: 0; accent-color: var(--accent); }
+.overlay-opacity { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.overlay-opacity[hidden] { display: none; }
+.overlay-opacity input { width: 120px; min-height: 0; padding: 0; border: 0; accent-color: var(--accent); }
+.overlay-opacity output { width: 34px; color: var(--muted); font: 12px var(--mono); text-align: right; }
 
 .map-hint {
   position: absolute;

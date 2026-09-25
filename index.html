@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>NAVEX NDS</title>
   <link rel="stylesheet" href="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.css" />
-  <link rel="stylesheet" href="styles.css?v=20260925f" />
+  <link rel="stylesheet" href="styles.css?v=20260925g" />
 </head>
 <body>
   <header class="topbar">
@@ -47,9 +47,18 @@
 
     <main class="map-wrap">
       <div id="map"></div>
-      <div class="map-style" role="group" aria-label="Map style">
-        <button data-style="topo" class="active">Topo</button>
-        <button data-style="satellite">Satellite</button>
+      <div class="map-controls">
+        <div class="map-style" role="group" aria-label="Map style">
+          <button data-style="topo" class="active">Topo</button>
+          <button data-style="satellite">Satellite</button>
+        </div>
+        <div class="overlay-ctl">
+          <label class="overlay-toggle"><input id="overlayToggle" type="checkbox"> 1:50K map (2005)</label>
+          <div class="overlay-opacity">
+            <input id="overlayOpacity" type="range" min="10" max="100" step="5" aria-label="1:50K map opacity">
+            <output id="overlayOpacityValue" for="overlayOpacity"></output>
+          </div>
+        </div>
       </div>
       <p id="mapHint" class="map-hint">Tap a checkpoint to start the route · then tap the map to add waypoints</p>
     </main>
@@ -90,8 +99,8 @@
   <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.15.0/proj4.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
-  <script src="grid.js?v=20260925f"></script>
-  <script src="share.js?v=20260925f"></script>
-  <script src="app.js?v=20260925f"></script>
+  <script src="grid.js?v=20260925g"></script>
+  <script src="share.js?v=20260925g"></script>
+  <script src="app.js?v=20260925g"></script>
 </body>
 </html>
