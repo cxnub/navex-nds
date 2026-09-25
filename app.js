@@ -8,6 +8,7 @@
 const MAPTILER_STORAGE_KEY = 'navex.maptiler.apiKey';
 const ROUTE_STORAGE_KEY = 'navex.route';
 const CHECKPOINT_STORAGE_KEY = 'navex.checkpoints';
+const ROA_COLOR = '#22c55e';
 
 let map;
 let routeSourceReady = false;
@@ -166,7 +167,7 @@ function setupRouteLayer() {
       type: 'line',
       source: 'route',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#d5a84b', 'line-opacity': 0.95, 'line-width': 3 },
+      paint: { 'line-color': ROA_COLOR, 'line-opacity': 0.95, 'line-width': 3 },
     });
   }
   routeSourceReady = true;
@@ -230,8 +231,7 @@ async function loadSavedRoute() {
     const point = { ...data, id: nextId++ };
     const el = document.createElement('div');
     el.className = `route-marker ${point.fixed ? 'fixed' : 'manual'}`;
-    el.textContent = point.checkpointId || String(markers.length + 1);
-    el.title = point.fixed ? `${point.checkpointId} — fixed checkpoint` : 'Manual route point';
+    el.title = point.fixed ? `${point.checkpointId} — fixed checkpoint` : `Route point ${markers.length + 1}`;
     const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !point.fixed })
       .setLngLat([point.lng, point.lat]).addTo(map);
     el.addEventListener('click', event => { event.stopPropagation(); openPointEditor(point.id); });
@@ -338,10 +338,13 @@ function createCheckpointMarker(cp) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = `checkpoint-marker ${type.toLowerCase()}`;
-  el.textContent = cp.id || cp.name || type;
+  const label = document.createElement('span');
+  label.className = 'cp-label';
+  label.textContent = cp.id || cp.name || type;
+  el.appendChild(label);
   el.title = `${cp.name || cp.id || type} — click to add to route`;
 
-  const marker = new maptilersdk.Marker({ element: el, anchor: 'bottom' })
+  const marker = new maptilersdk.Marker({ element: el, anchor: 'center' })
     .setLngLat([cp.lng, cp.lat])
     .addTo(map);
   if (!checkpointsVisible) el.style.display = 'none';
@@ -384,8 +387,7 @@ function addPoint(latLng, checkpoint = null, fixed = false) {
 
   const el = document.createElement('div');
   el.className = `route-marker ${point.fixed ? 'fixed' : 'manual'}`;
-  el.textContent = point.checkpointId || String(markers.length + 1);
-  el.title = point.fixed ? `${point.checkpointId} — fixed checkpoint` : 'Manual route point';
+  el.title = point.fixed ? `${point.checkpointId} — fixed checkpoint` : `Route point ${markers.length + 1}`;
 
   const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !fixed })
     .setLngLat([point.lng, point.lat])
