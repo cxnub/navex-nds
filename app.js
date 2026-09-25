@@ -97,7 +97,9 @@ function bindUI() {
     if (!btn || btn.dataset.style === mapStyle) return;
     mapStyle = btn.dataset.style;
     document.querySelectorAll('.map-style [data-style]').forEach(b => b.classList.toggle('active', b === btn));
-    map?.setStyle(MAP_STYLES[mapStyle]);
+    // diff: false forces a full reload so 'style.load' fires and re-adds the route layer;
+    // a diffed style change silently drops layers that aren't in the new style.
+    map?.setStyle(MAP_STYLES[mapStyle], { diff: false });
   });
 
   els.mapKeyBtn.addEventListener('click', () => showApiKeyDialog(false));
