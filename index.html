@@ -72,6 +72,12 @@
 
       <section>
         <h2>Route Points</h2>
+        <div class="share-actions">
+          <button id="exportRouteBtn" class="secondary">Export Route</button>
+          <button id="importRouteBtn" class="secondary">Import Route</button>
+        </div>
+        <input id="importFile" type="file" accept=".json,application/json" hidden>
+        <small id="shareStatus"></small>
         <div id="pointList" class="point-list"></div>
       </section>
     </aside>

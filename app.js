@@ -50,6 +50,8 @@ function initApp() {
     cpMgr: document.getElementById('cpMgr'),
     cpName: document.getElementById('cpName'),
     cpStatus: document.getElementById('cpStatus'),
+    importFile: document.getElementById('importFile'),
+    shareStatus: document.getElementById('shareStatus'),
     mapType: document.getElementById('mapType'),
     editDialog: document.getElementById('editDialog'),
     editDescription: document.getElementById('editDescription'),
@@ -198,6 +200,13 @@ function bindUI() {
   document.getElementById('addMgrBtn').addEventListener('click', addMGR);
   els.mgrInput.addEventListener('keydown', e => { if (e.key === 'Enter') addMGR(); });
   document.getElementById('addCpBtn').addEventListener('click', addCheckpoint);
+  document.getElementById('exportRouteBtn').addEventListener('click', exportRoute);
+  document.getElementById('importRouteBtn').addEventListener('click', () => els.importFile.click());
+  els.importFile.addEventListener('change', () => {
+    const file = els.importFile.files[0];
+    els.importFile.value = '';
+    if (file) importRoute(file);
+  });
   [els.mgrInput, els.cpMgr].forEach(input => input.addEventListener('input', () => autoFormatMGRInput(input)));
   [els.cpId, els.cpMgr, els.cpName].forEach(input => input.addEventListener('keydown', e => { if (e.key === 'Enter') addCheckpoint(); }));
 
@@ -216,17 +225,21 @@ async function loadSavedRoute() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(ROUTE_STORAGE_KEY) || 'null'); } catch { saved = null; }
   if (!saved || !Array.isArray(saved.points)) return;
+  if (saved.settings) applySettings(saved.settings);
+  restorePoints(saved.points);
+}
 
-  if (saved.settings) {
-    state.speedKmh = Number(saved.settings.speedKmh) || 4;
-    state.distanceUnit = saved.settings.distanceUnit === 'km' ? 'km' : 'm';
-    state.mgrPrecision = Number(saved.settings.mgrPrecision) === 6 ? 6 : 4;
-    els.speed.value = state.speedKmh;
-    els.distanceUnit.value = state.distanceUnit;
-    els.mgrPrecision.value = state.mgrPrecision;
-  }
+function applySettings(settings) {
+  state.speedKmh = Math.max(0.1, Number(settings.speedKmh) || 4);
+  state.distanceUnit = settings.distanceUnit === 'km' ? 'km' : 'm';
+  state.mgrPrecision = Number(settings.mgrPrecision) === 6 ? 6 : 4;
+  els.speed.value = state.speedKmh;
+  els.distanceUnit.value = state.distanceUnit;
+  els.mgrPrecision.value = state.mgrPrecision;
+}
 
-  saved.points.forEach(data => {
+function restorePoints(points) {
+  points.forEach(data => {
     if (!Number.isFinite(Number(data.lat)) || !Number.isFinite(Number(data.lng))) return;
     const point = { ...data, id: nextId++ };
     const el = document.createElement('div');
@@ -246,6 +259,99 @@ async function loadSavedRoute() {
     markers.push({ point, marker });
   });
   syncPolyline();
+}
+
+const EXPORT_FORMAT = 'navex-nds-route';
+
+function exportRoute() {
+  if (!markers.length) {
+    els.shareStatus.textContent = 'Nothing to export. Plot a route first.';
+    return;
+  }
+  const usedIds = new Set(markers.map(x => x.point.checkpointId).filter(Boolean));
+  const data = {
+    format: EXPORT_FORMAT,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    settings: { ...state },
+    checkpoints: checkpoints.filter(cp => usedIds.has(cp.id)),
+    points: markers.map(({ point }) => ({
+      lat: point.lat,
+      lng: point.lng,
+      description: point.description || '',
+      remarks: point.remarks || '',
+      checkpointId: point.checkpointId || null,
+      checkpointType: point.checkpointType || null,
+      fixed: Boolean(point.fixed),
+    })),
+  };
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  a.download = `navex-route-${stamp}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  els.shareStatus.textContent = `Exported ${data.points.length} points.`;
+}
+
+async function importRoute(file) {
+  let data;
+  try { data = JSON.parse(await file.text()); }
+  catch { els.shareStatus.textContent = 'Not a valid route file.'; return; }
+  if (data?.format !== EXPORT_FORMAT || !Array.isArray(data.points)) {
+    els.shareStatus.textContent = 'Not a NAVEX route file.';
+    return;
+  }
+
+  const isCoord = p => Number.isFinite(Number(p?.lat)) && Number.isFinite(Number(p?.lng));
+  const importedCps = (Array.isArray(data.checkpoints) ? data.checkpoints : [])
+    .filter(cp => cp && cp.id && isCoord(cp))
+    .map(cp => ({
+      id: String(cp.id).toUpperCase(),
+      name: String(cp.name || ''),
+      type: String(cp.type).toUpperCase() === 'SCP' ? 'SCP' : 'CP',
+      mgr: NavexGrid.formatMGR(cp.lat, cp.lng, 4),
+      lat: Number(cp.lat),
+      lng: Number(cp.lng),
+    }));
+  const cpIds = new Set(importedCps.map(cp => cp.id));
+  const points = data.points.filter(isCoord).map(p => {
+    const checkpointId = p.checkpointId ? String(p.checkpointId).toUpperCase() : null;
+    const linked = checkpointId && cpIds.has(checkpointId);
+    return {
+      lat: Number(p.lat),
+      lng: Number(p.lng),
+      description: String(p.description || ''),
+      remarks: String(p.remarks || ''),
+      checkpointId: linked ? checkpointId : null,
+      checkpointType: linked ? p.checkpointType || null : null,
+      fixed: Boolean(linked && p.fixed),
+    };
+  });
+  if (!points.length) {
+    els.shareStatus.textContent = 'The file has no route points.';
+    return;
+  }
+  if (markers.length && !confirm(`Replace the current route (${markers.length} points) with the imported one?`)) return;
+
+  // Imported checkpoints replace local ones with the same ID; other local checkpoints are kept.
+  checkpoints = checkpoints.filter(cp => !cpIds.has(cp.id.toUpperCase())).concat(importedCps);
+  saveCheckpoints();
+  checkpointMarkers.forEach(x => x.marker.remove());
+  checkpointMarkers = [];
+  checkpoints.forEach(createCheckpointMarker);
+
+  markers.forEach(x => x.marker.remove());
+  markers = [];
+  nextId = 1;
+  if (data.settings) applySettings(data.settings);
+  restorePoints(points);
+  render();
+
+  const bounds = new maptilersdk.LngLatBounds();
+  points.forEach(p => bounds.extend([p.lng, p.lat]));
+  map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
+  els.shareStatus.textContent = `Imported ${points.length} points and ${importedCps.length} checkpoints.`;
 }
 
 function saveRoute() {

@@ -28,6 +28,11 @@ Checkpoints are saved in browser `localStorage` under `navex.checkpoints`.
 - Continue plotting until the route is `CP1 → manual point → SCP1 → manual point → CP2` or any other sequence you need.
 - Use **Hide Checkpoints / Show Checkpoints** to declutter the map without removing the checkpoint data.
 
+## Sharing routes
+
+- **Export Route** (under Route Points) downloads a `navex-route-*.json` file with the route points, their descriptions and remarks, the checkpoints used in the route, and the route settings.
+- **Import Route** loads such a file and replaces the current route. Imported checkpoints replace local checkpoints with the same ID. Other local checkpoints are kept.
+
 ## MGR
 
 MGR conversion uses EPSG:3168 (Kertau RSO / RSO Malaya) ↔ EPSG:4326 (WGS84), calculated in the browser with [proj4js](https://github.com/proj4js/proj4js) (see `grid.js`). No network service is needed.
