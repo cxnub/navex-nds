@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>NAVEX NDS</title>
   <link rel="stylesheet" href="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.css" />
-  <link rel="stylesheet" href="styles.css?v=20260925d" />
+  <link rel="stylesheet" href="styles.css?v=20260925e" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><h1>NAVEX NDS</h1><span>Route planner</span></div>
     <nav class="top-actions">
+      <button id="ndsBtn" class="ghost nds-btn" title="View the navigational data sheet">NDS</button>
       <button id="importBtn" class="ghost" title="Import checkpoints and a route from a file">Import</button>
       <button id="exportBtn" class="ghost" title="Export all checkpoints, the route and the NDS to a file">Export</button>
-      <button id="printBtn" class="ghost" title="Print the navigational data sheet">Print</button>
       <button id="mapKeyBtn" class="ghost icon" title="MapTiler API key" aria-label="MapTiler API key">⚙</button>
     </nav>
   </header>
@@ -57,6 +57,21 @@
 
   <section id="printSheet" class="print-sheet"></section>
 
+  <dialog id="ndsDialog" class="nds-dialog" aria-labelledby="ndsTitle">
+    <header class="nds-head">
+      <div class="nds-heading">
+        <h3 id="ndsTitle">Navigational Data Sheet</h3>
+        <p id="ndsSummary" class="nds-summary"></p>
+      </div>
+      <label class="nds-speed">Speed <input id="ndsSpeed" type="number" min="0.1" step="0.1" inputmode="decimal"> km/h</label>
+      <div class="nds-actions">
+        <button id="ndsPrintBtn" class="primary">Print</button>
+        <button id="ndsCloseBtn">Close</button>
+      </div>
+    </header>
+    <div id="ndsTable" class="nds-table-wrap"></div>
+  </dialog>
+
   <dialog id="apiKeyDialog">
     <form id="apiKeyForm">
       <h3>MapTiler API key</h3>
@@ -75,8 +90,8 @@
   <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.15.0/proj4.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
-  <script src="grid.js?v=20260925d"></script>
-  <script src="share.js?v=20260925d"></script>
-  <script src="app.js?v=20260925d"></script>
+  <script src="grid.js?v=20260925e"></script>
+  <script src="share.js?v=20260925e"></script>
+  <script src="app.js?v=20260925e"></script>
 </body>
 </html>

@@ -314,6 +314,46 @@ dialog input { width: 100%; margin-top: 4px; }
 .dialog-status { min-height: 18px; margin-top: 6px; color: var(--danger); font-size: 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
 
+/* ---------- NDS table ---------- */
+
+.nds-btn { font-weight: 700; color: var(--accent); }
+.nds-dialog { max-width: 1100px; padding: 0; }
+.nds-dialog[open] { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
+.nds-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.nds-heading h3 { margin: 0; }
+.nds-summary { color: var(--muted); font-size: 13px; }
+.nds-dialog .nds-speed { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.nds-dialog .nds-speed input { width: 76px; margin: 0; }
+.nds-actions { display: flex; gap: 6px; margin-left: auto; }
+.nds-table-wrap { flex: 1; min-height: 0; overflow: auto; }
+
+.nds-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nds-table th, .nds-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.nds-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.nds-table .mono { font-family: var(--mono); }
+.nds-table .num { text-align: right; }
+.nds-table td.text { white-space: normal; min-width: 170px; }
+.nds-table .section-row td { background: #eef4ec; color: var(--accent); font-weight: 700; font-size: 12px; }
+.nds-input { width: 100%; padding: 5px 7px; }
+.nds-dialog .nds-table { min-width: 900px; }
+
 .toast {
   position: fixed;
   left: 50%;
@@ -339,13 +379,15 @@ dialog input { width: 100%; margin-top: 4px; }
   .print-sheet h1 { font-size: 16px; }
   .print-sheet h2 { font-size: 13px; margin: 16px 0 6px; }
   .print-sheet p { margin: 2px 0 10px; color: #444; }
-  .print-sheet table { width: 100%; border-collapse: collapse; }
+  .print-sheet table { width: 100%; min-width: 0; border-collapse: collapse; font-size: 11px; }
+  .print-sheet .nds-table th { position: static; color: #000; background: #eee; font-size: 10px; }
+  .print-sheet .nds-table td.text { min-width: 0; }
   .print-sheet .cp-table { width: auto; min-width: 50%; }
   .print-sheet th, .print-sheet td { border: 1px solid #999; padding: 5px 7px; text-align: left; }
   .print-sheet th { background: #eee; }
   .print-sheet .mono, .print-sheet .num { font-family: var(--mono); }
   .print-sheet .num { text-align: right; font-weight: 700; }
-  .print-sheet .section-row td { background: #f3f3f3; font-weight: 700; }
+  .print-sheet .section-row td { background: #f3f3f3; color: #000; }
 }
 
 /* ---------- Phones ---------- */
@@ -367,4 +409,9 @@ dialog input { width: 100%; margin-top: 4px; }
 
   .route-marker, .checkpoint-marker { width: 30px; height: 30px; }
   .map-hint { bottom: 34px; font-size: 11px; }
+
+  .nds-dialog { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; border: 0; border-radius: 0; }
+  .nds-dialog[open] { max-height: none; }
+  .nds-actions { margin-left: 0; width: 100%; }
+  .nds-actions button { flex: 1; min-height: 42px; }
 }

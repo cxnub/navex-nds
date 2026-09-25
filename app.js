@@ -18,15 +18,17 @@ let map = null;
 let mapStyle = 'topo';
 let mapMarkers = [];
 let checkpoints = []; // { id, name, type: 'CP' | 'SCP', mgr, lat, lng }
-let route = [];       // { id, lat, lng, checkpointId }
+let route = [];       // { id, lat, lng, checkpointId, description, remarks }
 let nextPointId = 1;
+let speedKmh = 4;
 const els = {};
 
 window.addEventListener('load', init);
 
 function init() {
   [
-    'importBtn', 'exportBtn', 'printBtn', 'mapKeyBtn', 'importFile',
+    'ndsBtn', 'importBtn', 'exportBtn', 'mapKeyBtn', 'importFile',
+    'ndsDialog', 'ndsSummary', 'ndsSpeed', 'ndsTable', 'ndsPrintBtn', 'ndsCloseBtn',
     'cpForm', 'cpType', 'cpMgr', 'cpId', 'cpStatus', 'cpCount', 'checkpointList',
     'undoBtn', 'clearBtn', 'routeSummary', 'routeList', 'printSheet', 'mapHint',
     'apiKeyDialog', 'apiKeyForm', 'apiKeyInput', 'apiKeyStatus', 'apiKeyCancelBtn',
@@ -74,7 +76,21 @@ function bindUI() {
     els.importFile.value = '';
     if (file) importFile(file);
   });
-  els.printBtn.addEventListener('click', () => { renderPrintSheet(); window.print(); });
+  els.ndsBtn.addEventListener('click', openNds);
+  els.ndsCloseBtn.addEventListener('click', () => els.ndsDialog.close());
+  els.ndsPrintBtn.addEventListener('click', () => { renderPrintSheet(); window.print(); });
+  els.ndsSpeed.addEventListener('input', () => {
+    speedKmh = NavexShare.normalizeSpeed(els.ndsSpeed.value);
+    saveRoute();
+    renderNds();
+  });
+  els.ndsTable.addEventListener('input', event => {
+    const input = event.target.closest('[data-field]');
+    const point = input && route.find(p => p.id === Number(input.dataset.point));
+    if (!point) return;
+    point[input.dataset.field] = input.value;
+    saveRoute();
+  });
 
   document.querySelector('.map-style').addEventListener('click', event => {
     const btn = event.target.closest('[data-style]');
@@ -125,13 +141,15 @@ function saveCheckpoints() {
 function loadRoute() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(ROUTE_STORAGE_KEY) || 'null'); } catch { saved = null; }
+  speedKmh = NavexShare.normalizeSpeed(saved?.settings?.speedKmh);
   return (Array.isArray(saved?.points) ? saved.points : []).filter(isCoord).map(makePoint);
 }
 
 function saveRoute() {
   try {
     localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify({
-      points: route.map(({ lat, lng, checkpointId }) => ({ lat, lng, checkpointId })),
+      settings: { speedKmh },
+      points: route.map(({ lat, lng, checkpointId, description, remarks }) => ({ lat, lng, checkpointId, description, remarks })),
     }));
   } catch (err) { console.warn('Could not save route:', err); }
 }
@@ -298,9 +316,14 @@ function sortedCheckpoints() {
 
 function makePoint(p) {
   const cp = p.checkpointId ? findCheckpoint(p.checkpointId) : null;
-  return cp
-    ? { id: nextPointId++, lat: cp.lat, lng: cp.lng, checkpointId: cp.id }
-    : { id: nextPointId++, lat: Number(p.lat), lng: Number(p.lng), checkpointId: null };
+  return {
+    id: nextPointId++,
+    lat: cp ? cp.lat : Number(p.lat),
+    lng: cp ? cp.lng : Number(p.lng),
+    checkpointId: cp ? cp.id : null,
+    description: String(p.description || ''),
+    remarks: String(p.remarks || ''),
+  };
 }
 
 function addRoutePoint(pos, checkpointId = null) {
@@ -372,7 +395,7 @@ function exportFile() {
     NavexShare.notify('Nothing to export yet.');
     return;
   }
-  const data = NavexShare.buildRouteFile({ checkpoints, points: route });
+  const data = NavexShare.buildRouteFile({ checkpoints, points: route, speedKmh });
   NavexShare.downloadRouteFile(data);
   NavexShare.notify(`Exported ${data.checkpoints.length} checkpoints and ${data.points.length} route points.`);
 }
@@ -386,33 +409,72 @@ async function importFile(file) {
   checkpoints = NavexShare.mergeCheckpoints(checkpoints, imported.checkpoints);
   saveCheckpoints();
   route = imported.points.map(makePoint);
+  speedKmh = imported.speedKmh;
   routeChanged();
   fitTo(route.length ? route : imported.checkpoints);
   NavexShare.notify(`Imported ${imported.checkpoints.length} checkpoints and ${imported.points.length} route points.`);
 }
 
-function renderPrintSheet() {
-  const legs = NavexShare.buildLegs(route);
-  const total = legs.reduce((sum, leg) => sum + leg.distance, 0);
-  const date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-  const legRows = routeSections().map(section => {
+function legSeconds(leg) {
+  return NavexShare.travelSeconds(leg.distance, speedKmh);
+}
+
+function ndsSummary(legs) {
+  const distance = legs.reduce((sum, leg) => sum + leg.distance, 0);
+  const seconds = legs.reduce((sum, leg) => sum + legSeconds(leg), 0);
+  return `${legs.length} leg${legs.length === 1 ? '' : 's'} · ${formatDistance(distance)} · ${NavexShare.formatTime(seconds)} at ${speedKmh} km/h`;
+}
+
+// The NDS table, grouped by section. Description and Remarks are inputs on screen and text in print.
+function ndsTableHtml(legs, editable) {
+  const cell = (leg, point, field, label) => editable
+    ? `<input class="nds-input" data-point="${point.id}" data-field="${field}" value="${esc(point[field])}" placeholder="${label}" aria-label="${label}, leg ${leg.no}">`
+    : esc(point[field]);
+  const rows = routeSections().map(section => {
     const sectionLegs = legs.slice(section.from, section.to);
     const distance = sectionLegs.reduce((sum, leg) => sum + leg.distance, 0);
-    return `<tr class="section-row"><td colspan="7">${esc(sectionLegs[0].section)} · ${formatDistance(distance)}</td></tr>`
-      + sectionLegs.map(leg => `<tr>
-      <td>${leg.no}</td><td>${esc(leg.from)}</td><td class="mono">${esc(leg.fromMgr)}</td>
-      <td>${esc(leg.to)}</td><td class="mono">${esc(leg.toMgr)}</td>
-      <td class="num">${leg.azimuth}</td><td class="num">${Math.round(leg.distance)}</td>
-    </tr>`).join('');
+    const seconds = sectionLegs.reduce((sum, leg) => sum + legSeconds(leg), 0);
+    return `<tr class="section-row"><td colspan="8">${esc(sectionLegs[0].section)} · ${formatDistance(distance)} · ${NavexShare.formatTime(seconds)}</td></tr>`
+      + sectionLegs.map(leg => {
+        const to = route[leg.no];
+        return `<tr>
+          <td class="num">${leg.no}</td>
+          <td class="mono">${esc(leg.fromMgr)}</td>
+          <td class="mono">${esc(leg.toMgr)}</td>
+          <td class="mono num">${leg.azimuth}</td>
+          <td class="mono num">${Math.round(leg.distance)} m</td>
+          <td class="mono num">${NavexShare.formatTime(legSeconds(leg))}</td>
+          <td class="text">${cell(leg, to, 'description', 'Description')}</td>
+          <td class="text">${cell(leg, to, 'remarks', 'Remarks')}</td>
+        </tr>`;
+      }).join('');
   }).join('');
+  return `<table class="nds-table">
+    <thead><tr><th>No.</th><th>From MGR</th><th>To MGR</th><th>Azimuth</th><th>Distance</th><th>Est. Time</th><th>Description</th><th>Remarks</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="8" class="empty">No legs planned yet.</td></tr>'}</tbody>
+  </table>`;
+}
+
+function openNds() {
+  els.ndsSpeed.value = speedKmh;
+  renderNds();
+  els.ndsDialog.showModal();
+}
+
+function renderNds() {
+  const legs = NavexShare.buildLegs(route);
+  els.ndsSummary.textContent = ndsSummary(legs);
+  els.ndsTable.innerHTML = ndsTableHtml(legs, true);
+}
+
+function renderPrintSheet() {
+  const legs = NavexShare.buildLegs(route);
+  const date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   const cpRows = sortedCheckpoints().map(cp => `<tr><td>${esc(cp.id)}</td><td>${cp.type}</td><td class="mono">${esc(cp.mgr)}</td></tr>`).join('');
   els.printSheet.innerHTML = `
     <h1>Navigational Data Sheet</h1>
-    <p>${esc(date)} · ${legs.length} leg${legs.length === 1 ? '' : 's'} · ${formatDistance(total)}</p>
-    <table>
-      <thead><tr><th>Leg</th><th>From</th><th>From MGR</th><th>To</th><th>To MGR</th><th>Azimuth (mils)</th><th>Distance (m)</th></tr></thead>
-      <tbody>${legRows || '<tr><td colspan="7">No legs planned.</td></tr>'}</tbody>
-    </table>
+    <p>${esc(date)} · ${esc(ndsSummary(legs))}</p>
+    ${ndsTableHtml(legs, false)}
     ${cpRows ? `<h2>Checkpoints</h2><table class="cp-table"><thead><tr><th>ID</th><th>Type</th><th>MGR</th></tr></thead><tbody>${cpRows}</tbody></table>` : ''}`;
 }
 

@@ -7,6 +7,19 @@
   const VERSION = 3;
   const CHECKPOINT_STORAGE_KEY = 'navex.checkpoints';
 
+  function formatTime(seconds) {
+    const t = Math.round(seconds), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function travelSeconds(distance, speedKmh) {
+    return distance / (speedKmh * 1000 / 3600);
+  }
+
+  function normalizeSpeed(value) {
+    return Math.max(0.1, Number(value) || 4);
+  }
+
   // Checkpoints are labelled by their ID; waypoints are numbered WP1, WP2, … along the route.
   function pointLabels(points) {
     let n = 0;
@@ -35,12 +48,14 @@
     });
   }
 
-  function buildRouteFile({ checkpoints, points }) {
+  function buildRouteFile({ checkpoints, points, speedKmh }) {
     const labels = pointLabels(points);
+    const speed = normalizeSpeed(speedKmh);
     return {
       format: FORMAT,
       version: VERSION,
       exportedAt: new Date().toISOString(),
+      settings: { speedKmh: speed },
       checkpoints: checkpoints.map(({ id, name, type, mgr, lat, lng }) => ({ id, name: name || '', type, mgr, lat, lng })),
       points: points.map((p, i) => ({
         label: labels[i],
@@ -48,6 +63,8 @@
         lat: p.lat,
         lng: p.lng,
         checkpointId: p.checkpointId || null,
+        description: p.description || '',
+        remarks: p.remarks || '',
       })),
       nds: buildLegs(points).map(leg => ({
         leg: leg.no,
@@ -58,11 +75,14 @@
         toMgr: leg.toMgr,
         azimuthMils: leg.azimuth,
         distanceM: Math.round(leg.distance),
+        estTime: formatTime(travelSeconds(leg.distance, speed)),
+        description: points[leg.no].description || '',
+        remarks: points[leg.no].remarks || '',
       })),
     };
   }
 
-  // Returns { checkpoints, points }; throws with a user-facing message on bad input.
+  // Returns { checkpoints, points, speedKmh }; throws with a user-facing message on bad input.
   // Also reads files from earlier versions. The nds section is informational: legs are recalculated.
   function parseRouteFile(text) {
     let data;
@@ -83,10 +103,16 @@
     const cpIds = new Set(checkpoints.map(cp => cp.id));
     const points = data.points.filter(isCoord).map(p => {
       const checkpointId = p.checkpointId ? String(p.checkpointId).toUpperCase() : null;
-      return { lat: Number(p.lat), lng: Number(p.lng), checkpointId: cpIds.has(checkpointId) ? checkpointId : null };
+      return {
+        lat: Number(p.lat),
+        lng: Number(p.lng),
+        checkpointId: cpIds.has(checkpointId) ? checkpointId : null,
+        description: String(p.description || ''),
+        remarks: String(p.remarks || ''),
+      };
     });
     if (!points.length && !checkpoints.length) throw new Error('The file has no route points or checkpoints.');
-    return { checkpoints, points };
+    return { checkpoints, points, speedKmh: normalizeSpeed(data.settings?.speedKmh) };
   }
 
   // Imported checkpoints replace local ones with the same ID; other local checkpoints are kept.
@@ -133,7 +159,7 @@
   }
 
   window.NavexShare = {
-    pointLabels, buildLegs, buildRouteFile, parseRouteFile, mergeCheckpoints,
+    formatTime, travelSeconds, normalizeSpeed, pointLabels, buildLegs, buildRouteFile, parseRouteFile, mergeCheckpoints,
     loadStoredCheckpoints, saveStoredCheckpoints, downloadRouteFile, notify,
   };
 })();
