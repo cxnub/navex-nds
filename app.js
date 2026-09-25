@@ -198,6 +198,7 @@ function bindUI() {
   document.getElementById('addMgrBtn').addEventListener('click', addMGR);
   els.mgrInput.addEventListener('keydown', e => { if (e.key === 'Enter') addMGR(); });
   document.getElementById('addCpBtn').addEventListener('click', addCheckpoint);
+  [els.mgrInput, els.cpMgr].forEach(input => input.addEventListener('input', () => autoFormatMGRInput(input)));
   [els.cpId, els.cpMgr, els.cpName].forEach(input => input.addEventListener('keydown', e => { if (e.key === 'Enter') addCheckpoint(); }));
 
   const form = document.getElementById('editForm');
@@ -504,6 +505,16 @@ async function convertAllMGRs() {
       } catch (err) { reject(err); }
     });
   });
+}
+
+// Keep only digits and insert the easting/northing space after the 4th digit, preserving the caret.
+function autoFormatMGRInput(input) {
+  const caret = input.selectionStart ?? input.value.length;
+  const digitsBeforeCaret = input.value.slice(0, caret).replace(/\D/g, '').length;
+  const digits = input.value.replace(/\D/g, '').slice(0, 8);
+  input.value = digits.length > 4 ? `${digits.slice(0, 4)} ${digits.slice(4)}` : digits;
+  const pos = digitsBeforeCaret > 4 ? digitsBeforeCaret + 1 : digitsBeforeCaret;
+  input.setSelectionRange(pos, pos);
 }
 
 function formatInputMGR(mgr) {
