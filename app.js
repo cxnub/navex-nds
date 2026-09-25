@@ -35,6 +35,12 @@ function init() {
   checkpoints = loadCheckpoints();
   route = loadRoute();
   bindUI();
+  Sortable.create(els.routeList, {
+    handle: '.drag-handle',
+    draggable: '[data-point-id]',
+    animation: 150,
+    onEnd: event => { if (event.oldIndex !== event.newIndex) reorderRoute(); },
+  });
   renderPanel();
 
   const key = getStoredApiKey();
@@ -299,6 +305,13 @@ function addRoutePoint(pos, checkpointId = null) {
   routeChanged();
 }
 
+// Apply the order of the route list after a drag.
+function reorderRoute() {
+  const ids = [...els.routeList.querySelectorAll('[data-point-id]')].map(el => Number(el.dataset.pointId));
+  route = ids.map(id => route.find(p => p.id === id)).filter(Boolean);
+  routeChanged();
+}
+
 function removeRoutePoint(id) {
   route = route.filter(p => p.id !== id);
   routeChanged();
@@ -403,14 +416,16 @@ function renderRoute() {
   const start = route[0];
   const startLabel = NavexShare.pointLabel(start, 0);
   els.routeList.innerHTML = `
-    <div class="route-start">
+    <div class="route-start" data-point-id="${start.id}">
+      <span class="drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
       <span class="tag">Start</span>
       <strong>${esc(startLabel)}</strong>
       <span class="mgr">${esc(NavexGrid.formatMGR(start.lat, start.lng))}</span>
       <button class="icon-btn" data-remove="${start.id}" aria-label="Remove ${esc(startLabel)}" title="Remove ${esc(startLabel)}">×</button>
     </div>
     ${legs.map((leg, i) => `
-    <div class="leg">
+    <div class="leg" data-point-id="${route[i + 1].id}">
+      <span class="drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
       <span class="leg-no">${leg.no}</span>
       <div class="leg-body">
         <div class="leg-to">to <strong>${esc(leg.to)}</strong> <span class="mgr">${esc(leg.toMgr)}</span></div>

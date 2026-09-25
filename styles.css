@@ -140,7 +140,7 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 4px 6px 10px;
+  padding: 6px 4px 6px 4px;
   background: var(--panel-2);
   border-radius: 8px;
 }
@@ -159,10 +159,11 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 
 .leg {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: auto 26px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: start;
-  padding: 10px 4px 10px 10px;
+  padding: 10px 4px 10px 4px;
+  background: var(--panel);
   margin-top: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -177,6 +178,20 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
   color: #fff;
   font: 700 12px var(--mono);
 }
+.drag-handle {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  min-height: 26px;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.drag-handle:hover { color: var(--text); }
+.sortable-ghost { opacity: .35; }
+.sortable-chosen { box-shadow: 0 4px 14px rgba(0, 0, 0, .15); }
 .leg-to { font-size: 13px; }
 .leg-to strong { font-family: var(--mono); }
 .leg-nums { display: flex; gap: 22px; margin-top: 4px; }
@@ -318,6 +333,7 @@ dialog input { width: 100%; margin-top: 4px; }
   input, select { font-size: 16px; min-height: 42px; }
   .cp-form button, .head-actions button, .cp-row button { min-height: 38px; }
   .icon-btn { min-width: 38px; }
+  .drag-handle { width: 28px; min-height: 36px; font-size: 20px; }
 
   .route-marker, .checkpoint-marker { width: 30px; height: 30px; }
   .map-hint { bottom: 34px; font-size: 11px; }

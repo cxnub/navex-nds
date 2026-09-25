@@ -3,7 +3,7 @@
 Plan a navigation route and get the **MGR, azimuth and distance** of every leg, for navigating with a map and compass.
 
 1. **Checkpoints:** add each CP/SCP by its 8-digit MGR. They show on the map as black dots.
-2. **Route:** tap a checkpoint to route to it, or tap anywhere on the map to add a waypoint. Drag waypoints to adjust them. The route of advance (ROA) is drawn in green.
+2. **Route:** tap a checkpoint to route to it, or tap anywhere on the map to add a waypoint. Drag waypoints to adjust them, and drag rows in the Route list (⠿) to change the order. The route of advance (ROA) is drawn in green.
 3. **Legs:** each leg shows the destination MGR, the grid azimuth in mils and the distance in metres.
 
 **Print** produces a navigational data sheet (legs plus a checkpoint list). **Export** and **Import** share all checkpoints, the route and the NDS as a `navex-nds-*.json` file. On import, checkpoints in the file replace local checkpoints with the same ID, and the route is replaced.
