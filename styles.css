@@ -278,6 +278,28 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
   font-size: 12px;
   font-weight: 600;
 }
+.view-only-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .1);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.view-only-switch:hover { background: #fff; color: var(--text); }
+.view-only-switch .shackle { transform: translateX(4px) rotate(18deg); transform-origin: 16px 11px; }
+.view-only-switch[aria-checked="true"] { color: var(--text); }
+.view-only-switch[aria-checked="true"] .shackle { transform: none; }
+.switch-track { position: relative; width: 28px; height: 16px; border-radius: 8px; background: #c9cdc4; transition: background .15s; }
+.switch-knob { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform .15s; }
+.view-only-switch[aria-checked="true"] .switch-track { background: var(--accent); }
+.view-only-switch[aria-checked="true"] .switch-knob { transform: translateX(12px); }
+.view-only .route-marker, .view-only .checkpoint-marker { cursor: default; }
+.view-only .map-hint { display: none; }
 .overlay-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
 .overlay-toggle input { margin: 0; min-height: 0; accent-color: var(--accent); }
 .overlay-opacity { display: flex; align-items: center; gap: 8px; margin-top: 6px; }

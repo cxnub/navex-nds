@@ -8,6 +8,7 @@
 
 const MAPTILER_STORAGE_KEY = 'navex.maptiler.apiKey';
 const ROUTE_STORAGE_KEY = 'navex.route';
+const VIEW_ONLY_STORAGE_KEY = 'navex.viewOnly';
 const ROA_COLOR = '#22c55e';
 const MAP_STYLES = {
   topo: maptilersdk.MapStyle.OUTDOOR,
@@ -32,6 +33,7 @@ let route = [];       // { id, lat, lng, checkpointId, description, remarks }
 let nextPointId = 1;
 let speedKmh = 4;
 let coordMode = 'mgr'; // checkpoint entry: 'mgr' or 'latlng'
+let viewOnly = loadViewOnly(); // when true, the map can be panned and zoomed but not edited
 let editingPointId = null; // waypoint whose incoming leg is being adjusted
 const els = {};
 
@@ -43,7 +45,7 @@ function init() {
     'ndsDialog', 'ndsSummary', 'ndsSpeed', 'ndsTable', 'ndsPrintBtn', 'ndsCloseBtn',
     'cpForm', 'cpType', 'cpMgr', 'cpId', 'cpStatus', 'cpCount', 'checkpointList',
     'undoBtn', 'clearBtn', 'routeSummary', 'routeList', 'printSheet', 'mapHint',
-    'overlayToggle', 'overlayOpacity', 'overlayOpacityValue',
+    'overlayToggle', 'overlayOpacity', 'overlayOpacityValue', 'viewOnlyBtn',
     'apiKeyDialog', 'apiKeyForm', 'apiKeyInput', 'apiKeyStatus', 'apiKeyCancelBtn', 'apiKeyHelp',
   ].forEach(id => { els[id] = document.getElementById(id); });
 
@@ -123,6 +125,15 @@ function bindUI() {
     if (!point) return;
     point[input.dataset.field] = input.value;
     saveRoute();
+  });
+
+  renderViewOnly();
+  els.viewOnlyBtn.addEventListener('click', () => {
+    viewOnly = !viewOnly;
+    try { localStorage.setItem(VIEW_ONLY_STORAGE_KEY, viewOnly ? '1' : '0'); } catch { /* not persisted */ }
+    renderViewOnly();
+    drawMarkers();
+    NavexShare.notify(viewOnly ? 'View only: the map can be moved but not edited.' : 'Editing on: tap the map to add waypoints, drag them to adjust.');
   });
 
   renderOverlayControls();
@@ -231,12 +242,26 @@ function initMap(apiKey) {
   map.on('style.load', () => { addOverlayLayer(); addRouteLayer(); updateRouteLine(); });
   map.on('load', () => { drawMarkers(); fitTo([...route, ...checkpoints]); });
   map.on('click', event => {
+    if (viewOnly) {
+      NavexShare.notify('View only is on. Turn it off to edit the route on the map.');
+      return;
+    }
     if (!route.length) {
       NavexShare.notify(checkpoints.length ? 'Start the route at a checkpoint: tap a checkpoint first.' : 'Add a checkpoint first, then start the route from it.');
       return;
     }
     addRoutePoint({ lat: event.lngLat.lat, lng: event.lngLat.lng });
   });
+}
+
+function loadViewOnly() {
+  try { return localStorage.getItem(VIEW_ONLY_STORAGE_KEY) === '1'; } catch { return false; }
+}
+
+function renderViewOnly() {
+  els.viewOnlyBtn.setAttribute('aria-checked', String(viewOnly));
+  els.viewOnlyBtn.title = viewOnly ? 'Turn off to edit the route on the map' : 'Turn on to stop the map being edited by accident';
+  document.querySelector('.map-wrap').classList.toggle('view-only', viewOnly);
 }
 
 function loadOverlaySettings() {
@@ -313,12 +338,15 @@ function drawMarkers() {
     const el = document.createElement('button');
     el.type = 'button';
     el.className = `checkpoint-marker${cp.type === 'SCP' ? ' scp' : ''}`;
-    el.title = `${cp.id} · ${cp.mgr} — tap to add to route`;
+    el.title = viewOnly ? `${cp.id} · ${cp.mgr}` : `${cp.id} · ${cp.mgr} — tap to add to route`;
     const label = document.createElement('span');
     label.className = 'cp-label';
     label.textContent = cp.id;
     el.appendChild(label);
-    el.addEventListener('click', event => { event.stopPropagation(); addRoutePoint(cp, cp.id); });
+    el.addEventListener('click', event => {
+      event.stopPropagation();
+      if (!viewOnly) addRoutePoint(cp, cp.id);
+    });
     mapMarkers.push(new maptilersdk.Marker({ element: el, anchor: 'center' }).setLngLat([cp.lng, cp.lat]).addTo(map));
   });
 
@@ -326,9 +354,9 @@ function drawMarkers() {
   route.forEach((p, i) => {
     const el = document.createElement('div');
     el.className = `route-marker${p.checkpointId ? ' on-cp' : ''}`;
-    el.title = p.checkpointId ? labels[i] : `${labels[i]} · ${NavexGrid.formatLatLng(p.lat, p.lng)} — drag to adjust`;
+    el.title = p.checkpointId ? labels[i] : `${labels[i]} · ${NavexGrid.formatLatLng(p.lat, p.lng)}${viewOnly ? '' : ' — drag to adjust'}`;
     el.addEventListener('click', event => event.stopPropagation());
-    const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !p.checkpointId })
+    const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !p.checkpointId && !viewOnly })
       .setLngLat([p.lng, p.lat])
       .addTo(map);
     marker.on('dragend', () => {
