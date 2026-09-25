@@ -8,10 +8,12 @@
 
 const MAPTILER_STORAGE_KEY = 'navex.maptiler.apiKey';
 const ROUTE_STORAGE_KEY = 'navex.route';
+const CHECKPOINT_STORAGE_KEY = 'navex.checkpoints';
 
 let map;
 let routeSourceReady = false;
 let markers = [];
+let checkpoints = [];
 let checkpointMarkers = [];
 let nextId = 1;
 let editingPointId = null;
@@ -43,6 +45,11 @@ function initApp() {
     mgrStatus: document.getElementById('mgrStatus'),
     pointList: document.getElementById('pointList'),
     checkpointList: document.getElementById('checkpointList'),
+    cpType: document.getElementById('cpType'),
+    cpId: document.getElementById('cpId'),
+    cpMgr: document.getElementById('cpMgr'),
+    cpName: document.getElementById('cpName'),
+    cpStatus: document.getElementById('cpStatus'),
     mapType: document.getElementById('mapType'),
     editDialog: document.getElementById('editDialog'),
     editDescription: document.getElementById('editDescription'),
@@ -190,6 +197,8 @@ function bindUI() {
   document.getElementById('clearBtn').addEventListener('click', clearRoute);
   document.getElementById('addMgrBtn').addEventListener('click', addMGR);
   els.mgrInput.addEventListener('keydown', e => { if (e.key === 'Enter') addMGR(); });
+  document.getElementById('addCpBtn').addEventListener('click', addCheckpoint);
+  [els.cpId, els.cpMgr, els.cpName].forEach(input => input.addEventListener('keydown', e => { if (e.key === 'Enter') addCheckpoint(); }));
 
   const form = document.getElementById('editForm');
   form.addEventListener('submit', e => {
@@ -250,22 +259,80 @@ function saveRoute() {
 }
 
 async function loadCheckpoints() {
-  const defs = Array.isArray(window.CHECKPOINTS) ? window.CHECKPOINTS : [];
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(CHECKPOINT_STORAGE_KEY) || '[]'); } catch { saved = []; }
+  checkpoints = Array.isArray(saved) ? saved.filter(cp => cp && cp.id) : [];
   checkpointMarkers.forEach(x => x.marker.remove());
   checkpointMarkers = [];
 
-  for (const cp of defs) {
+  for (const cp of checkpoints) {
     try {
-      const position = cp.lat != null && cp.lng != null
-        ? { lat: Number(cp.lat), lng: Number(cp.lng) }
-        : await mgrToLatLng(cp.mgr);
-      if (!position || !Number.isFinite(position.lat) || !Number.isFinite(position.lng)) continue;
-      createCheckpointMarker({ ...cp, ...position });
+      if (!Number.isFinite(Number(cp.lat)) || !Number.isFinite(Number(cp.lng))) {
+        Object.assign(cp, await mgrToLatLng(cp.mgr));
+      }
+      createCheckpointMarker(cp);
     } catch (err) {
       console.warn(`Could not plot ${cp.id}:`, err);
     }
   }
+  saveCheckpoints();
   renderCheckpointList();
+}
+
+function saveCheckpoints() {
+  try { localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(checkpoints)); }
+  catch (err) { console.warn('Could not save checkpoints:', err); }
+}
+
+function nextCheckpointId(type) {
+  let n = 1;
+  while (checkpoints.some(cp => cp.id.toUpperCase() === `${type}${n}`)) n++;
+  return `${type}${n}`;
+}
+
+function addCheckpoint() {
+  const type = els.cpType.value === 'SCP' ? 'SCP' : 'CP';
+  const id = els.cpId.value.trim().toUpperCase() || nextCheckpointId(type);
+  const raw = els.cpMgr.value.replace(/\s+/g, '');
+  if (checkpoints.some(cp => cp.id.toUpperCase() === id)) {
+    els.cpStatus.textContent = `${id} already exists.`;
+    return;
+  }
+  if (!/^\d{8}$/.test(raw)) {
+    els.cpStatus.textContent = 'Enter an 8-digit MGR, e.g. 28465132.';
+    return;
+  }
+
+  els.cpStatus.textContent = 'Converting MGR…';
+  mgrToLatLng(raw).then(latLng => {
+    const cp = { id, name: els.cpName.value.trim(), type, mgr: `${raw.slice(0, 4)} ${raw.slice(4)}`, ...latLng };
+    checkpoints.push(cp);
+    saveCheckpoints();
+    createCheckpointMarker(cp);
+    renderCheckpointList();
+    map.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
+    els.cpId.value = '';
+    els.cpMgr.value = '';
+    els.cpName.value = '';
+    els.cpStatus.textContent = `${id} added.`;
+  }).catch(() => {
+    els.cpStatus.textContent = 'MGR conversion failed.';
+  });
+}
+
+function removeCheckpoint(id) {
+  const i = checkpoints.findIndex(cp => cp.id === id);
+  if (i < 0) return;
+  checkpoints.splice(i, 1);
+  checkpointMarkers = checkpointMarkers.filter(x => {
+    if (x.cp.id !== id) return true;
+    x.marker.remove();
+    return false;
+  });
+  saveCheckpoints();
+  const routePoint = markers.find(x => x.point.checkpointId === id);
+  if (routePoint) removePoint(routePoint.point.id);
+  else renderCheckpointList();
 }
 
 function createCheckpointMarker(cp) {
@@ -279,6 +346,7 @@ function createCheckpointMarker(cp) {
   const marker = new maptilersdk.Marker({ element: el, anchor: 'bottom' })
     .setLngLat([cp.lng, cp.lat])
     .addTo(map);
+  if (!checkpointsVisible) el.style.display = 'none';
 
   el.addEventListener('click', event => {
     event.stopPropagation();
@@ -518,23 +586,24 @@ function render() {
 }
 
 function renderCheckpointList() {
-  const defs = Array.isArray(window.CHECKPOINTS) ? window.CHECKPOINTS : [];
-  if (!defs.length) {
-    els.checkpointList.innerHTML = '<div class="empty">No checkpoints configured. Edit checkpoints.js.</div>';
+  if (!checkpoints.length) {
+    els.checkpointList.innerHTML = '<div class="empty">No checkpoints yet. Add one above.</div>';
     return;
   }
-  els.checkpointList.innerHTML = defs.map(cp => {
+  els.checkpointList.innerHTML = checkpoints.map(cp => {
     const plotted = markers.some(x => x.point.checkpointId === cp.id);
     return `<div class="checkpoint-item">
       <span class="cp-badge ${String(cp.type || 'CP').toLowerCase()}">${escapeHtml(cp.type || 'CP')}</span>
-      <span class="cp-name"><strong>${escapeHtml(cp.id)}</strong><small>${escapeHtml(cp.name || '')}</small></span>
-      <button class="icon-btn" data-add-cp="${escapeAttr(cp.id)}" ${plotted ? 'disabled' : ''}>${plotted ? '✓' : 'Add'}</button>
+      <span class="cp-name"><strong>${escapeHtml(cp.id)}</strong><small>${escapeHtml([cp.mgr, cp.name].filter(Boolean).join(' · '))}</small></span>
+      <button class="icon-btn" data-add-cp="${escapeAttr(cp.id)}" ${plotted ? 'disabled' : ''} title="Add to route">${plotted ? '✓' : 'Add'}</button>
+      <button class="icon-btn" data-remove-cp="${escapeAttr(cp.id)}" title="Delete checkpoint">×</button>
     </div>`;
   }).join('');
   els.checkpointList.querySelectorAll('[data-add-cp]').forEach(btn => btn.addEventListener('click', () => {
-    const cp = defs.find(x => x.id === btn.dataset.addCp);
+    const cp = checkpoints.find(x => x.id === btn.dataset.addCp);
     if (cp) addCheckpointToRoute(cp);
   }));
+  els.checkpointList.querySelectorAll('[data-remove-cp]').forEach(btn => btn.addEventListener('click', () => removeCheckpoint(btn.dataset.removeCp)));
 }
 
 function renderPointList() {

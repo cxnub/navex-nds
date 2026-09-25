@@ -57,6 +57,16 @@
 
       <section>
         <h2>Checkpoints</h2>
+        <div class="cp-form">
+          <div class="input-row">
+            <select id="cpType" aria-label="Checkpoint type"><option value="CP">CP</option><option value="SCP">SCP</option></select>
+            <input id="cpId" maxlength="12" placeholder="ID (auto)" aria-label="Checkpoint ID">
+          </div>
+          <input id="cpMgr" inputmode="numeric" maxlength="9" placeholder="MGR e.g. 2846 5132" aria-label="Checkpoint MGR">
+          <input id="cpName" maxlength="60" placeholder="Name (optional)" aria-label="Checkpoint name">
+          <button id="addCpBtn" class="primary full-width">Add Checkpoint</button>
+        </div>
+        <small id="cpStatus"></small>
         <div id="checkpointList" class="checkpoint-list"></div>
       </section>
 
@@ -94,7 +104,6 @@
   </dialog>
 
   <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.umd.min.js"></script>
-  <script src="checkpoints.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -6,35 +6,18 @@ Interactive checkpoint-to-checkpoint navigational data sheet based on the Projec
 
 This version uses **MapTiler SDK JS / MapLibre**, matching the mapping approach used by Project NAVEX rather than Google Maps.
 
-1. Create a MapTiler Cloud API key.
-2. Open `app.js`.
-3. Replace:
-
-```js
-The app asks the user for a MapTiler Cloud API key on first launch and stores it in browser `localStorage` under `navex.maptiler.apiKey`. Use the **MapTiler Key** button to change it later.
-```
-
-with your key.
+The app asks for a MapTiler Cloud API key on first launch and stores it in browser `localStorage` under `navex.maptiler.apiKey`. Use the **MapTiler Key** button to change it later.
 
 The SDK is loaded from the MapTiler CDN.
 
 ## Checkpoints
 
-Edit `checkpoints.js`:
+Add checkpoints in the **Checkpoints** panel:
 
-```js
-window.CHECKPOINTS = [
-  { id: 'CP1', name: 'Checkpoint 1', type: 'CP', mgr: '28465132' },
-  { id: 'SCP1', name: 'Sub-checkpoint 1', type: 'SCP', mgr: '28505155' },
-  { id: 'CP2', name: 'Checkpoint 2', type: 'CP', mgr: '29104876' },
-];
-```
+- Pick **CP** or **SCP**, enter an 8-digit MGR and, optionally, an ID and name. Leave the ID blank to auto-number (`CP1`, `CP2`, `SCP1`, …).
+- Click **×** next to a checkpoint to delete it. This also removes it from the route.
 
-You can also provide WGS84 coordinates directly:
-
-```js
-{ id: 'CP1', name: 'Checkpoint 1', type: 'CP', lat: 1.3521, lng: 103.8198 }
-```
+Checkpoints are saved in browser `localStorage` under `navex.checkpoints`.
 
 ## Route workflow
 
