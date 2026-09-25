@@ -16,8 +16,7 @@
     <div class="top-actions">
       <button id="mapKeyBtn" class="secondary">MapTiler Key</button>
       <button id="clearBtn" class="secondary">Clear Route</button>
-      <button id="exportCsvBtn" class="secondary">Export CSV</button>
-      <button id="printBtn" class="primary">Print / PDF</button>
+      <a class="nav-btn secondary" href="nds.html">Open NDS</a>
     </div>
   </header>
 
@@ -72,33 +71,7 @@
       <div class="map-help">Click map to add manual point • Click CP/SCP to add it • Drag manual points to adjust</div>
     </section>
 
-    <section class="panel sheet-panel">
-      <div class="sheet-header">
-        <div>
-          <h2>Navigational Data Sheet</h2>
-          <span id="routeSummary">0 legs · 0 m · 0:00</span>
-        </div>
-        <button id="addRowBtn" class="secondary">+ Manual Point</button>
-      </div>
-      <div class="table-wrap">
-        <table id="ndsTable">
-          <thead>
-            <tr>
-              <th>No.</th>
-              <th>From MGR</th>
-              <th>To MGR</th>
-              <th>Azimuth</th>
-              <th>Distance</th>
-              <th>Est. Time</th>
-              <th>Description</th>
-              <th>Remarks</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
+
   </main>
 
   <dialog id="apiKeyDialog">

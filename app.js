@@ -7,6 +7,7 @@
  */
 
 const MAPTILER_STORAGE_KEY = 'navex.maptiler.apiKey';
+const ROUTE_STORAGE_KEY = 'navex.route';
 
 let map;
 let routeSourceReady = false;
@@ -42,8 +43,6 @@ function initApp() {
     mgrStatus: document.getElementById('mgrStatus'),
     pointList: document.getElementById('pointList'),
     checkpointList: document.getElementById('checkpointList'),
-    ndsBody: document.querySelector('#ndsTable tbody'),
-    routeSummary: document.getElementById('routeSummary'),
     mapType: document.getElementById('mapType'),
     editDialog: document.getElementById('editDialog'),
     editDescription: document.getElementById('editDescription'),
@@ -105,6 +104,12 @@ function bindApiKeyUI() {
     initMap(key);
   });
   document.getElementById('apiKeyCancelBtn').addEventListener('click', () => els.apiKeyDialog.close());
+  els.apiKeyDialog.addEventListener('cancel', event => {
+    if (!getStoredApiKey()) event.preventDefault();
+  });
+  els.apiKeyDialog.addEventListener('close', () => {
+    if (!getStoredApiKey()) setTimeout(() => showApiKeyDialog(true), 0);
+  });
   document.getElementById('mapKeyBtn').addEventListener('click', () => showApiKeyDialog(false));
 }
 
@@ -124,6 +129,7 @@ function initMap(apiKey) {
   map.on('load', async () => {
     setupRouteLayer();
     await loadCheckpoints();
+    await loadSavedRoute();
     render();
   });
 
@@ -183,9 +189,6 @@ function bindUI() {
   els.toggleCheckpointsBtn.addEventListener('click', toggleCheckpoints);
   document.getElementById('clearBtn').addEventListener('click', clearRoute);
   document.getElementById('addMgrBtn').addEventListener('click', addMGR);
-  document.getElementById('printBtn').addEventListener('click', () => window.print());
-  document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
-  document.getElementById('addRowBtn').addEventListener('click', () => addBlankPoint());
   els.mgrInput.addEventListener('keydown', e => { if (e.key === 'Enter') addMGR(); });
 
   const form = document.getElementById('editForm');
@@ -197,6 +200,53 @@ function bindUI() {
     item.point.remarks = els.editRemarks.value.trim();
     render();
   });
+}
+
+async function loadSavedRoute() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(ROUTE_STORAGE_KEY) || 'null'); } catch { saved = null; }
+  if (!saved || !Array.isArray(saved.points)) return;
+
+  if (saved.settings) {
+    state.speedKmh = Number(saved.settings.speedKmh) || 4;
+    state.distanceUnit = saved.settings.distanceUnit === 'km' ? 'km' : 'm';
+    state.mgrPrecision = Number(saved.settings.mgrPrecision) === 6 ? 6 : 4;
+    els.speed.value = state.speedKmh;
+    els.distanceUnit.value = state.distanceUnit;
+    els.mgrPrecision.value = state.mgrPrecision;
+  }
+
+  saved.points.forEach(data => {
+    if (!Number.isFinite(Number(data.lat)) || !Number.isFinite(Number(data.lng))) return;
+    const point = { ...data, id: nextId++ };
+    const el = document.createElement('div');
+    el.className = `route-marker ${point.fixed ? 'fixed' : 'manual'}`;
+    el.textContent = point.checkpointId || String(markers.length + 1);
+    el.title = point.fixed ? `${point.checkpointId} — fixed checkpoint` : 'Manual route point';
+    const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !point.fixed })
+      .setLngLat([point.lng, point.lat]).addTo(map);
+    el.addEventListener('click', event => { event.stopPropagation(); openPointEditor(point.id); });
+    if (!point.fixed) {
+      marker.on('dragend', () => {
+        const pos = marker.getLngLat();
+        point.lat = pos.lat; point.lng = pos.lng; point.mgr = null;
+        syncPolyline();
+        convertAllMGRs().then(render).catch(() => render());
+      });
+    }
+    markers.push({ point, marker });
+  });
+  syncPolyline();
+}
+
+function saveRoute() {
+  try {
+    localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify({
+      settings: { ...state },
+      points: markers.map(x => ({ ...x.point })),
+      savedAt: new Date().toISOString(),
+    }));
+  } catch (err) { console.warn('Could not save route:', err); }
 }
 
 async function loadCheckpoints() {
@@ -295,15 +345,6 @@ function addPoint(latLng, checkpoint = null, fixed = false) {
   syncPolyline();
   if (point.mgr) render();
   else convertAllMGRs().then(render).catch(() => render());
-}
-
-function addBlankPoint() {
-  const last = markers[markers.length - 1]?.point;
-  const pos = last
-    ? { lat: last.lat + 0.001, lng: last.lng + 0.001 }
-    : { lat: 1.3521, lng: 103.8198 };
-  addPoint(pos);
-  map.flyTo({ center: [pos.lng, pos.lat], zoom: Math.max(map.getZoom(), 14) });
 }
 
 function removePoint(id) {
@@ -469,13 +510,11 @@ function formatTime(seconds) {
 }
 
 function render() {
+  saveRoute();
   const legs = calculateLegs();
   renderPointList();
   renderCheckpointList();
-  renderTable(legs);
-  const totalDistance = legs.reduce((s, x) => s + x.distance, 0);
-  const totalSeconds = legs.reduce((s, x) => s + x.seconds, 0);
-  els.routeSummary.textContent = `${legs.length} leg${legs.length === 1 ? '' : 's'} · ${formatDistance(totalDistance)} · ${formatTime(totalSeconds)}`;
+
 }
 
 function renderCheckpointList() {
@@ -512,32 +551,9 @@ function renderPointList() {
   els.pointList.querySelectorAll('[data-delete]').forEach(btn => btn.addEventListener('click', () => removePoint(Number(btn.dataset.delete))));
 }
 
-function renderTable(legs) {
-  if (!legs.length) {
-    els.ndsBody.innerHTML = '<tr><td colspan="9" class="empty">Plot at least two points to generate the NDS.</td></tr>';
-    return;
-  }
-  els.ndsBody.innerHTML = legs.map((leg, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td class="mgr-cell">${escapeHtml(leg.from.mgr || '—')}</td>
-      <td class="mgr-cell">${escapeHtml(leg.to.mgr || '—')}</td>
-      <td class="az-cell">${String(leg.azimuth).padStart(4, '0')}</td>
-      <td class="dist-cell">${formatDistance(leg.distance)}</td>
-      <td class="time-cell">${formatTime(leg.seconds)}</td>
-      <td><input class="cell-input" data-desc="${leg.to.id}" value="${escapeAttr(leg.description)}" placeholder="Description"></td>
-      <td><input class="cell-input" data-remarks="${leg.to.id}" value="${escapeAttr(leg.remarks)}" placeholder="Remarks"></td>
-      <td><button class="delete-row" data-delete-row="${leg.to.id}">×</button></td>
-    </tr>`).join('');
-
-  els.ndsBody.querySelectorAll('[data-desc]').forEach(input => input.addEventListener('change', () => updatePointField(Number(input.dataset.desc), 'description', input.value)));
-  els.ndsBody.querySelectorAll('[data-remarks]').forEach(input => input.addEventListener('change', () => updatePointField(Number(input.dataset.remarks), 'remarks', input.value)));
-  els.ndsBody.querySelectorAll('[data-delete-row]').forEach(btn => btn.addEventListener('click', () => removePoint(Number(btn.dataset.deleteRow))));
-}
-
 function updatePointField(id, field, value) {
   const item = markers.find(x => x.point.id === id);
-  if (item) item.point[field] = value;
+  if (item) { item.point[field] = value; saveRoute(); }
 }
 
 function toggleCheckpoints() {
