@@ -26,6 +26,10 @@ An 8-digit MGR `2846 5132` is easting 6 2846 0 m, northing 1 5132 0 m (10 m reso
 - `grid.js`: MGR ↔ lat/lng conversion, distance and azimuth
 - `share.js`: legs, and export/import of route files
 
+## Deploying changes
+
+`index.html` loads `styles.css`, `grid.js`, `share.js` and `app.js` with a `?v=` version tag. Bump it whenever any of these files change, so browsers don't mix a new page with cached old files.
+
 ## Run locally
 
 ```bash
