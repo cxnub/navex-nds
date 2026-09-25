@@ -29,7 +29,7 @@ const MAP_STYLES = {
   streets: maptilersdk.MapStyle.STREETS,
   outdoor: maptilersdk.MapStyle.OUTDOOR,
   satellite: maptilersdk.MapStyle.SATELLITE,
-  hybrid: maptilersdk.MapStyle.SATELLITE,
+  hybrid: maptilersdk.MapStyle.HYBRID,
 };
 
 window.addEventListener('load', initApp);
