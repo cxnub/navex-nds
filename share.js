@@ -1,75 +1,59 @@
 /*
- * Route file export/import, shared by the plot page and the NDS page.
- * A route file holds the settings, all checkpoints, the route points and the NDS as displayed.
- * Requires grid.js.
+ * Route legs and route files (export/import). Requires grid.js.
+ * A route file holds all checkpoints, the route points and the NDS legs.
  */
 (function () {
   const FORMAT = 'navex-nds-route';
-  const VERSION = 2;
+  const VERSION = 3;
   const CHECKPOINT_STORAGE_KEY = 'navex.checkpoints';
 
-  function formatDistance(m, unit) {
-    return unit === 'km' ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+  function pointLabel(point, index) {
+    return point.checkpointId || `WP${index + 1}`;
   }
 
-  function formatTime(seconds) {
-    const t = Math.round(seconds), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
-    return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
-  }
-
-  function buildNDS(points, settings) {
-    const rows = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i], b = points[i + 1];
-      const { distance, azimuth } = NavexGrid.leg(a, b);
-      rows.push({
+  function buildLegs(points) {
+    return points.slice(1).map((to, i) => {
+      const from = points[i];
+      const { distance, azimuth } = NavexGrid.leg(from, to);
+      return {
         no: i + 1,
-        fromMgr: NavexGrid.formatMGR(a.lat, a.lng, settings.mgrPrecision),
-        toMgr: NavexGrid.formatMGR(b.lat, b.lng, settings.mgrPrecision),
+        from: pointLabel(from, i),
+        to: pointLabel(to, i + 1),
+        fromMgr: NavexGrid.formatMGR(from.lat, from.lng),
+        toMgr: NavexGrid.formatMGR(to.lat, to.lng),
         azimuth: String(azimuth).padStart(4, '0'),
-        distance: formatDistance(distance, settings.distanceUnit),
-        estTime: formatTime(distance / (settings.speedKmh * 1000 / 3600)),
-        description: b.description || '',
-        remarks: b.remarks || '',
-      });
-    }
-    return rows;
+        distance,
+      };
+    });
   }
 
-  function normalizeSettings(settings = {}) {
-    return {
-      speedKmh: Math.max(0.1, Number(settings.speedKmh) || 4),
-      distanceUnit: settings.distanceUnit === 'km' ? 'km' : 'm',
-      mgrPrecision: Number(settings.mgrPrecision) === 6 ? 6 : 4,
-    };
-  }
-
-  function buildRouteFile({ settings, checkpoints, points }) {
-    const s = normalizeSettings(settings);
+  function buildRouteFile({ checkpoints, points }) {
     return {
       format: FORMAT,
       version: VERSION,
       exportedAt: new Date().toISOString(),
-      settings: s,
-      checkpoints: checkpoints.map(cp => ({
-        id: cp.id, name: cp.name || '', type: cp.type, mgr: cp.mgr, lat: cp.lat, lng: cp.lng,
-      })),
-      points: points.map(p => ({
+      checkpoints: checkpoints.map(({ id, name, type, mgr, lat, lng }) => ({ id, name: name || '', type, mgr, lat, lng })),
+      points: points.map((p, i) => ({
+        label: pointLabel(p, i),
+        mgr: NavexGrid.formatMGR(p.lat, p.lng),
         lat: p.lat,
         lng: p.lng,
-        mgr: NavexGrid.formatMGR(p.lat, p.lng, 4),
-        description: p.description || '',
-        remarks: p.remarks || '',
         checkpointId: p.checkpointId || null,
-        checkpointType: p.checkpointType || null,
-        fixed: Boolean(p.fixed),
       })),
-      nds: buildNDS(points, s),
+      nds: buildLegs(points).map(leg => ({
+        leg: leg.no,
+        from: leg.from,
+        fromMgr: leg.fromMgr,
+        to: leg.to,
+        toMgr: leg.toMgr,
+        azimuthMils: leg.azimuth,
+        distanceM: Math.round(leg.distance),
+      })),
     };
   }
 
-  // Returns { settings, checkpoints, points }; throws with a user-facing message on bad input.
-  // The file's nds section is informational: the NDS is always recalculated from the points.
+  // Returns { checkpoints, points }; throws with a user-facing message on bad input.
+  // Also reads files from earlier versions. The nds section is informational: legs are recalculated.
   function parseRouteFile(text) {
     let data;
     try { data = JSON.parse(text); } catch { throw new Error('Not a valid route file.'); }
@@ -82,26 +66,17 @@
         id: String(cp.id).toUpperCase(),
         name: String(cp.name || ''),
         type: String(cp.type).toUpperCase() === 'SCP' ? 'SCP' : 'CP',
-        mgr: NavexGrid.formatMGR(cp.lat, cp.lng, 4),
+        mgr: NavexGrid.formatMGR(cp.lat, cp.lng),
         lat: Number(cp.lat),
         lng: Number(cp.lng),
       }));
     const cpIds = new Set(checkpoints.map(cp => cp.id));
     const points = data.points.filter(isCoord).map(p => {
       const checkpointId = p.checkpointId ? String(p.checkpointId).toUpperCase() : null;
-      const linked = Boolean(checkpointId && cpIds.has(checkpointId));
-      return {
-        lat: Number(p.lat),
-        lng: Number(p.lng),
-        description: String(p.description || ''),
-        remarks: String(p.remarks || ''),
-        checkpointId: linked ? checkpointId : null,
-        checkpointType: linked ? p.checkpointType || null : null,
-        fixed: linked && Boolean(p.fixed),
-      };
+      return { lat: Number(p.lat), lng: Number(p.lng), checkpointId: cpIds.has(checkpointId) ? checkpointId : null };
     });
     if (!points.length && !checkpoints.length) throw new Error('The file has no route points or checkpoints.');
-    return { settings: normalizeSettings(data.settings), checkpoints, points };
+    return { checkpoints, points };
   }
 
   // Imported checkpoints replace local ones with the same ID; other local checkpoints are kept.
@@ -126,13 +101,29 @@
     const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-    a.download = `navex-route-${stamp}.json`;
+    a.download = `navex-nds-${stamp}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  let toastTimer;
+  function notify(message) {
+    let toast = document.getElementById('toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'toast';
+      toast.className = 'toast';
+      toast.setAttribute('role', 'status');
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
+  }
+
   window.NavexShare = {
-    buildRouteFile, parseRouteFile, mergeCheckpoints, downloadRouteFile,
-    loadStoredCheckpoints, saveStoredCheckpoints, buildNDS,
+    pointLabel, buildLegs, buildRouteFile, parseRouteFile, mergeCheckpoints,
+    loadStoredCheckpoints, saveStoredCheckpoints, downloadRouteFile, notify,
   };
 })();

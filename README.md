@@ -1,50 +1,35 @@
-# NAVEX NDS Web App
+# NAVEX NDS
 
-Interactive checkpoint-to-checkpoint navigational data sheet based on the Project NAVEX map workflow.
+Plan a navigation route and get the **MGR, azimuth and distance** of every leg, for navigating with a map and compass.
+
+1. **Checkpoints:** add each CP/SCP by its 8-digit MGR. They show on the map as black dots.
+2. **Route:** tap a checkpoint to route to it, or tap anywhere on the map to add a waypoint. Drag waypoints to adjust them. The route of advance (ROA) is drawn in green.
+3. **Legs:** each leg shows the destination MGR, the grid azimuth in mils and the distance in metres.
+
+**Print** produces a navigational data sheet (legs plus a checkpoint list). **Export** and **Import** share all checkpoints, the route and the NDS as a `navex-nds-*.json` file. On import, checkpoints in the file replace local checkpoints with the same ID, and the route is replaced.
+
+Checkpoints and the route are saved in the browser.
 
 ## Map
 
-This version uses **MapTiler SDK JS / MapLibre**, matching the mapping approach used by Project NAVEX rather than Google Maps.
-
-The app asks for a MapTiler Cloud API key on first launch and stores it in browser `localStorage` under `navex.maptiler.apiKey`. Use the **MapTiler Key** button to change it later.
-
-The SDK is loaded from the MapTiler CDN.
-
-## Checkpoints
-
-Add checkpoints in the **Checkpoints** panel:
-
-- Pick **CP** or **SCP**, enter an 8-digit MGR and, optionally, an ID and name. Leave the ID blank to auto-number (`CP1`, `CP2`, `SCP1`, …).
-- Click **×** next to a checkpoint to delete it. This also removes it from the route.
-
-Checkpoints are saved in browser `localStorage` under `navex.checkpoints`.
-
-## Route workflow
-
-- Click **CP/SCP** on the map or click **Add** in the checkpoint list to put a fixed checkpoint into the route.
-- Click anywhere else on the map to add a manual route point.
-- Manual points are draggable.
-- Checkpoints in the route are fixed and cannot be dragged.
-- Continue plotting until the route is `CP1 → manual point → SCP1 → manual point → CP2` or any other sequence you need.
-- Use **Hide Checkpoints / Show Checkpoints** to declutter the map without removing the checkpoint data.
-
-## Sharing routes
-
-**Export Route** and **Import Route** are on both the plot page (under Route Points) and the NDS page.
-
-- **Export Route** downloads a `navex-route-*.json` file containing the route settings, all checkpoints, the route points with their descriptions and remarks, and the NDS table (MGRs, azimuth, distance, time, description, remarks).
-- **Import Route** loads such a file and replaces the current route and NDS. Imported checkpoints replace local checkpoints with the same ID. Other local checkpoints are kept. The NDS is recalculated from the imported points.
+The map uses **MapTiler SDK JS / MapLibre**, with Topo (default) and Satellite styles. The app asks for a MapTiler Cloud API key on first launch and stores it in the browser. Use the ⚙ button to change it.
 
 ## MGR
 
-MGR conversion uses EPSG:3168 (Kertau RSO / RSO Malaya) ↔ EPSG:4326 (WGS84), calculated in the browser with [proj4js](https://github.com/proj4js/proj4js) (see `grid.js`). No network service is needed.
+MGR conversion uses EPSG:3168 (Kertau RSO / RSO Malaya) ↔ EPSG:4326 (WGS84), calculated in the browser with [proj4js](https://github.com/proj4js/proj4js) (see `grid.js`).
 
-An 8-digit MGR `2846 5132` is easting 6 2846 0 m, northing 1 5132 0 m (10 m resolution). Leg distances and azimuths (mils) are calculated from grid coordinates in metres.
+An 8-digit MGR `2846 5132` is easting 6 2846 0 m, northing 1 5132 0 m (10 m resolution). Leg distances and grid azimuths (6400 mils) are calculated from grid coordinates in metres.
+
+## Files
+
+- `index.html`, `styles.css`, `app.js`: the app
+- `grid.js`: MGR ↔ lat/lng conversion, distance and azimuth
+- `share.js`: legs, and export/import of route files
 
 ## Run locally
 
 ```bash
-python -m http.server 8080
+python3 -m http.server 8080
 ```
 
 Then open `http://localhost:8080`.

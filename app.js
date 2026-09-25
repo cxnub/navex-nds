@@ -1,77 +1,136 @@
 /*
  * NAVEX NDS
- * MapTiler / MapLibre implementation based on Project NAVEX's map workflow.
- * MGR conversion uses EPSG:3168 <-> EPSG:4326 locally via grid.js.
+ * See the checkpoints, plan a route between them and read off the MGR, azimuth and distance
+ * of each leg for map-and-compass navigation.
  *
+ * Map: MapTiler SDK (MapLibre). Grid maths: grid.js. Legs and route files: share.js.
  */
 
 const MAPTILER_STORAGE_KEY = 'navex.maptiler.apiKey';
 const ROUTE_STORAGE_KEY = 'navex.route';
-const CHECKPOINT_STORAGE_KEY = 'navex.checkpoints';
 const ROA_COLOR = '#22c55e';
-
-let map;
-let routeSourceReady = false;
-let markers = [];
-let checkpoints = [];
-let checkpointMarkers = [];
-let nextId = 1;
-let editingPointId = null;
-let checkpointsVisible = true;
-
-const state = {
-  speedKmh: 4.0,
-  distanceUnit: 'm',
-  mgrPrecision: 4,
+const MAP_STYLES = {
+  topo: maptilersdk.MapStyle.OUTDOOR,
+  satellite: maptilersdk.MapStyle.HYBRID,
 };
 
+let map = null;
+let mapStyle = 'topo';
+let mapMarkers = [];
+let checkpoints = []; // { id, name, type: 'CP' | 'SCP', mgr, lat, lng }
+let route = [];       // { id, lat, lng, checkpointId }
+let nextPointId = 1;
 const els = {};
 
-const MAP_STYLES = {
-  streets: maptilersdk.MapStyle.STREETS,
-  outdoor: maptilersdk.MapStyle.OUTDOOR,
-  satellite: maptilersdk.MapStyle.SATELLITE,
-  hybrid: maptilersdk.MapStyle.HYBRID,
-};
+window.addEventListener('load', init);
 
-window.addEventListener('load', initApp);
+function init() {
+  [
+    'importBtn', 'exportBtn', 'printBtn', 'mapKeyBtn', 'importFile',
+    'cpForm', 'cpType', 'cpMgr', 'cpId', 'cpStatus', 'cpCount', 'checkpointList',
+    'undoBtn', 'clearBtn', 'routeSummary', 'routeList', 'printSheet', 'mapHint',
+    'apiKeyDialog', 'apiKeyForm', 'apiKeyInput', 'apiKeyStatus', 'apiKeyCancelBtn',
+  ].forEach(id => { els[id] = document.getElementById(id); });
 
-function initApp() {
-  Object.assign(els, {
-    speed: document.getElementById('speed'),
-    distanceUnit: document.getElementById('distanceUnit'),
-    mgrPrecision: document.getElementById('mgrPrecision'),
-    mgrInput: document.getElementById('mgrInput'),
-    mgrStatus: document.getElementById('mgrStatus'),
-    pointList: document.getElementById('pointList'),
-    checkpointList: document.getElementById('checkpointList'),
-    cpType: document.getElementById('cpType'),
-    cpId: document.getElementById('cpId'),
-    cpMgr: document.getElementById('cpMgr'),
-    cpName: document.getElementById('cpName'),
-    cpStatus: document.getElementById('cpStatus'),
-    importFile: document.getElementById('importFile'),
-    shareStatus: document.getElementById('shareStatus'),
-    mapType: document.getElementById('mapType'),
-    editDialog: document.getElementById('editDialog'),
-    editDescription: document.getElementById('editDescription'),
-    editRemarks: document.getElementById('editRemarks'),
-    toggleCheckpointsBtn: document.getElementById('toggleCheckpointsBtn'),
-    apiKeyDialog: document.getElementById('apiKeyDialog'),
-    apiKeyForm: document.getElementById('apiKeyForm'),
-    apiKeyInput: document.getElementById('apiKeyInput'),
-    apiKeyStatus: document.getElementById('apiKeyStatus'),
+  checkpoints = loadCheckpoints();
+  route = loadRoute();
+  bindUI();
+  renderPanel();
+
+  const key = getStoredApiKey();
+  if (key) initMap(key);
+  else showApiKeyDialog(true);
+}
+
+function bindUI() {
+  els.cpForm.addEventListener('submit', addCheckpoint);
+  els.cpMgr.addEventListener('input', () => autoFormatMGRInput(els.cpMgr));
+  els.checkpointList.addEventListener('click', event => {
+    const target = event.target.closest('[data-route], [data-delete], [data-focus]');
+    if (!target) return;
+    const cp = findCheckpoint(target.dataset.route || target.dataset.delete || target.dataset.focus);
+    if (!cp) return;
+    if (target.dataset.route) addRoutePoint(cp, cp.id);
+    else if (target.dataset.delete) removeCheckpoint(cp.id);
+    else map?.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 15) });
   });
 
-  bindApiKeyUI();
-  bindUI();
+  els.routeList.addEventListener('click', event => {
+    const btn = event.target.closest('[data-remove]');
+    if (btn) removeRoutePoint(Number(btn.dataset.remove));
+  });
+  els.undoBtn.addEventListener('click', () => { route.pop(); routeChanged(); });
+  els.clearBtn.addEventListener('click', () => {
+    if (route.length && confirm('Clear the whole route?')) { route = []; routeChanged(); }
+  });
 
-  const savedKey = getStoredApiKey();
-  if (savedKey) {
-    initMap(savedKey);
-  } else {
-    showApiKeyDialog(true);
-  }
+  els.exportBtn.addEventListener('click', exportFile);
+  els.importBtn.addEventListener('click', () => els.importFile.click());
+  els.importFile.addEventListener('change', () => {
+    const file = els.importFile.files[0];
+    els.importFile.value = '';
+    if (file) importFile(file);
+  });
+  els.printBtn.addEventListener('click', () => { renderPrintSheet(); window.print(); });
+
+  document.querySelector('.map-style').addEventListener('click', event => {
+    const btn = event.target.closest('[data-style]');
+    if (!btn || btn.dataset.style === mapStyle) return;
+    mapStyle = btn.dataset.style;
+    document.querySelectorAll('.map-style [data-style]').forEach(b => b.classList.toggle('active', b === btn));
+    map?.setStyle(MAP_STYLES[mapStyle]);
+  });
+
+  els.mapKeyBtn.addEventListener('click', () => showApiKeyDialog(false));
+  els.apiKeyForm.addEventListener('submit', event => {
+    event.preventDefault();
+    const key = els.apiKeyInput.value.trim();
+    if (!key) { els.apiKeyStatus.textContent = 'Enter a MapTiler API key.'; return; }
+    try { localStorage.setItem(MAPTILER_STORAGE_KEY, key); } catch { /* map still loads for this session */ }
+    els.apiKeyDialog.close();
+    initMap(key);
+  });
+  els.apiKeyCancelBtn.addEventListener('click', () => els.apiKeyDialog.close());
+  els.apiKeyDialog.addEventListener('cancel', event => { if (!getStoredApiKey()) event.preventDefault(); });
+}
+
+/* ---------- Storage ---------- */
+
+function isCoord(p) {
+  return Number.isFinite(Number(p?.lat)) && Number.isFinite(Number(p?.lng));
+}
+
+function loadCheckpoints() {
+  return NavexShare.loadStoredCheckpoints().flatMap(cp => {
+    try {
+      const pos = isCoord(cp) ? { lat: Number(cp.lat), lng: Number(cp.lng) } : NavexGrid.mgrToLatLng(cp.mgr);
+      return [{
+        id: String(cp.id).toUpperCase(),
+        name: String(cp.name || ''),
+        type: String(cp.type).toUpperCase() === 'SCP' ? 'SCP' : 'CP',
+        mgr: NavexGrid.formatMGR(pos.lat, pos.lng),
+        ...pos,
+      }];
+    } catch { return []; }
+  });
+}
+
+function saveCheckpoints() {
+  NavexShare.saveStoredCheckpoints(checkpoints);
+}
+
+function loadRoute() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(ROUTE_STORAGE_KEY) || 'null'); } catch { saved = null; }
+  return (Array.isArray(saved?.points) ? saved.points : []).filter(isCoord).map(makePoint);
+}
+
+function saveRoute() {
+  try {
+    localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify({
+      points: route.map(({ lat, lng, checkpointId }) => ({ lat, lng, checkpointId })),
+    }));
+  } catch (err) { console.warn('Could not save route:', err); }
 }
 
 function getStoredApiKey() {
@@ -79,444 +138,292 @@ function getStoredApiKey() {
   catch { return ''; }
 }
 
-function saveApiKey(key) {
-  localStorage.setItem(MAPTILER_STORAGE_KEY, key.trim());
-}
+/* ---------- Map ---------- */
 
-function showApiKeyDialog(required = false) {
+function showApiKeyDialog(required) {
   els.apiKeyStatus.textContent = required ? 'A MapTiler API key is required to load the map.' : '';
   els.apiKeyInput.value = getStoredApiKey();
-  els.apiKeyCancelBtn = document.getElementById('apiKeyCancelBtn');
-  els.apiKeyCancelBtn.style.display = required ? 'none' : '';
+  els.apiKeyCancelBtn.hidden = required;
   if (!els.apiKeyDialog.open) els.apiKeyDialog.showModal();
   setTimeout(() => els.apiKeyInput.focus(), 0);
 }
 
-function bindApiKeyUI() {
-  els.apiKeyForm.addEventListener('submit', event => {
-    if (event.submitter?.value !== 'save') return;
-    event.preventDefault();
-    const key = els.apiKeyInput.value.trim();
-    if (!key) {
-      els.apiKeyStatus.textContent = 'Enter a MapTiler API key.';
-      return;
-    }
-    saveApiKey(key);
-    els.apiKeyDialog.close();
-    if (map) map.remove();
-    markers.forEach(x => x.marker.remove());
-    checkpointMarkers.forEach(x => x.marker.remove());
-    markers = [];
-    checkpointMarkers = [];
-    routeSourceReady = false;
-    nextId = 1;
-    initMap(key);
-  });
-  document.getElementById('apiKeyCancelBtn').addEventListener('click', () => els.apiKeyDialog.close());
-  els.apiKeyDialog.addEventListener('cancel', event => {
-    if (!getStoredApiKey()) event.preventDefault();
-  });
-  els.apiKeyDialog.addEventListener('close', () => {
-    if (!getStoredApiKey()) setTimeout(() => showApiKeyDialog(true), 0);
-  });
-  document.getElementById('mapKeyBtn').addEventListener('click', () => showApiKeyDialog(false));
-}
-
 function initMap(apiKey) {
   maptilersdk.config.apiKey = apiKey;
-
+  if (map) map.remove();
+  mapMarkers = [];
   map = new maptilersdk.Map({
     container: 'map',
-    style: MAP_STYLES.streets,
+    style: MAP_STYLES[mapStyle],
     center: [103.8198, 1.3521],
     zoom: 11,
-    attributionControl: true,
+    navigationControl: 'top-right',
+    geolocateControl: 'top-right',
+    scaleControl: 'bottom-left',
   });
+  map.on('style.load', () => { addRouteLayer(); updateRouteLine(); });
+  map.on('load', () => { drawMarkers(); fitTo([...route, ...checkpoints]); });
+  map.on('click', event => addRoutePoint({ lat: event.lngLat.lat, lng: event.lngLat.lng }));
+}
 
-  map.addControl(new maptilersdk.NavigationControl(), 'top-right');
+function routeGeoJSON() {
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'LineString', coordinates: route.length > 1 ? route.map(p => [p.lng, p.lat]) : [] },
+  };
+}
 
-  map.on('load', async () => {
-    setupRouteLayer();
-    await loadCheckpoints();
-    await loadSavedRoute();
-    render();
-  });
-
-  map.on('click', e => {
-    // Ignore clicks on checkpoint markers because their DOM marker stops propagation.
-    addPoint({ lat: e.lngLat.lat, lng: e.lngLat.lng }, null, false);
-  });
-
-  map.on('style.load', () => {
-    setupRouteLayer();
-    syncPolyline();
+function addRouteLayer() {
+  if (map.getSource('route')) return;
+  map.addSource('route', { type: 'geojson', data: routeGeoJSON() });
+  map.addLayer({
+    id: 'route-line',
+    type: 'line',
+    source: 'route',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ROA_COLOR, 'line-width': 3 },
   });
 }
 
-function setupRouteLayer() {
-  if (!map.isStyleLoaded()) return;
-
-  if (!map.getSource('route')) {
-    map.addSource('route', {
-      type: 'geojson',
-      data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
-    });
-  }
-
-  if (!map.getLayer('route-line')) {
-    map.addLayer({
-      id: 'route-line',
-      type: 'line',
-      source: 'route',
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': ROA_COLOR, 'line-opacity': 0.95, 'line-width': 3 },
-    });
-  }
-  routeSourceReady = true;
+function updateRouteLine() {
+  map?.getSource('route')?.setData(routeGeoJSON());
 }
 
-function bindUI() {
-  if (els._bound) return;
-  els._bound = true;
+function drawMarkers() {
+  if (!map) return;
+  mapMarkers.forEach(m => m.remove());
+  mapMarkers = [];
 
-  els.speed.addEventListener('input', () => {
-    state.speedKmh = Math.max(0.1, Number(els.speed.value) || 4);
-    render();
+  checkpoints.forEach(cp => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = `checkpoint-marker${cp.type === 'SCP' ? ' scp' : ''}`;
+    el.title = `${cp.id} · ${cp.mgr} — tap to add to route`;
+    const label = document.createElement('span');
+    label.className = 'cp-label';
+    label.textContent = cp.id;
+    el.appendChild(label);
+    el.addEventListener('click', event => { event.stopPropagation(); addRoutePoint(cp, cp.id); });
+    mapMarkers.push(new maptilersdk.Marker({ element: el, anchor: 'center' }).setLngLat([cp.lng, cp.lat]).addTo(map));
   });
-  els.distanceUnit.addEventListener('change', () => {
-    state.distanceUnit = els.distanceUnit.value;
-    render();
-  });
-  els.mgrPrecision.addEventListener('change', () => {
-    state.mgrPrecision = Number(els.mgrPrecision.value);
-    render();
-  });
-  els.mapType.addEventListener('change', () => {
-    const style = MAP_STYLES[els.mapType.value];
-    if (style) map.setStyle(style);
-  });
-  els.toggleCheckpointsBtn.addEventListener('click', toggleCheckpoints);
-  document.getElementById('clearBtn').addEventListener('click', clearRoute);
-  document.getElementById('addMgrBtn').addEventListener('click', addMGR);
-  els.mgrInput.addEventListener('keydown', e => { if (e.key === 'Enter') addMGR(); });
-  document.getElementById('addCpBtn').addEventListener('click', addCheckpoint);
-  document.getElementById('exportRouteBtn').addEventListener('click', exportRoute);
-  document.getElementById('importRouteBtn').addEventListener('click', () => els.importFile.click());
-  els.importFile.addEventListener('change', () => {
-    const file = els.importFile.files[0];
-    els.importFile.value = '';
-    if (file) importRoute(file);
-  });
-  [els.mgrInput, els.cpMgr].forEach(input => input.addEventListener('input', () => autoFormatMGRInput(input)));
-  [els.cpId, els.cpMgr, els.cpName].forEach(input => input.addEventListener('keydown', e => { if (e.key === 'Enter') addCheckpoint(); }));
 
-  const form = document.getElementById('editForm');
-  form.addEventListener('submit', e => {
-    if (e.submitter?.value !== 'save') return;
-    const item = markers.find(x => x.point.id === editingPointId);
-    if (!item) return;
-    item.point.description = els.editDescription.value.trim();
-    item.point.remarks = els.editRemarks.value.trim();
-    render();
-  });
-}
-
-async function loadSavedRoute() {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(ROUTE_STORAGE_KEY) || 'null'); } catch { saved = null; }
-  if (!saved || !Array.isArray(saved.points)) return;
-  if (saved.settings) applySettings(saved.settings);
-  restorePoints(saved.points);
-}
-
-function applySettings(settings) {
-  state.speedKmh = Math.max(0.1, Number(settings.speedKmh) || 4);
-  state.distanceUnit = settings.distanceUnit === 'km' ? 'km' : 'm';
-  state.mgrPrecision = Number(settings.mgrPrecision) === 6 ? 6 : 4;
-  els.speed.value = state.speedKmh;
-  els.distanceUnit.value = state.distanceUnit;
-  els.mgrPrecision.value = state.mgrPrecision;
-}
-
-function restorePoints(points) {
-  points.forEach(data => {
-    if (!Number.isFinite(Number(data.lat)) || !Number.isFinite(Number(data.lng))) return;
-    const point = { ...data, id: nextId++ };
+  route.forEach((p, i) => {
     const el = document.createElement('div');
-    el.className = `route-marker ${point.fixed ? 'fixed' : 'manual'}`;
-    el.title = point.fixed ? `${point.checkpointId} — fixed checkpoint` : `Route point ${markers.length + 1}`;
-    const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !point.fixed })
-      .setLngLat([point.lng, point.lat]).addTo(map);
-    el.addEventListener('click', event => { event.stopPropagation(); openPointEditor(point.id); });
-    if (!point.fixed) {
-      marker.on('dragend', () => {
-        const pos = marker.getLngLat();
-        point.lat = pos.lat; point.lng = pos.lng; point.mgr = null;
-        syncPolyline();
-        render();
-      });
-    }
-    markers.push({ point, marker });
+    el.className = `route-marker${p.checkpointId ? ' on-cp' : ''}`;
+    el.title = `${NavexShare.pointLabel(p, i)} — drag to adjust`;
+    el.addEventListener('click', event => event.stopPropagation());
+    const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !p.checkpointId })
+      .setLngLat([p.lng, p.lat])
+      .addTo(map);
+    marker.on('dragend', () => {
+      const pos = marker.getLngLat();
+      p.lat = pos.lat;
+      p.lng = pos.lng;
+      routeChanged(false);
+    });
+    mapMarkers.push(marker);
   });
-  syncPolyline();
 }
 
-function exportRoute() {
-  if (!markers.length && !checkpoints.length) {
-    els.shareStatus.textContent = 'Nothing to export. Plot a route first.';
+function fitTo(points) {
+  if (!map || !points.length) return;
+  if (points.length === 1) {
+    map.jumpTo({ center: [points[0].lng, points[0].lat], zoom: 15 });
     return;
   }
-  const data = NavexShare.buildRouteFile({ settings: state, checkpoints, points: markers.map(x => x.point) });
-  NavexShare.downloadRouteFile(data);
-  els.shareStatus.textContent = `Exported ${data.points.length} points, ${data.checkpoints.length} checkpoints and ${data.nds.length} NDS legs.`;
+  const bounds = new maptilersdk.LngLatBounds([points[0].lng, points[0].lat], [points[0].lng, points[0].lat]);
+  points.forEach(p => bounds.extend([p.lng, p.lat]));
+  map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 0 });
 }
 
-async function importRoute(file) {
-  let imported;
-  try { imported = NavexShare.parseRouteFile(await file.text()); }
-  catch (err) { els.shareStatus.textContent = err.message; return; }
-  if (markers.length && !confirm(`Replace the current route (${markers.length} points) with the imported one?`)) return;
+/* ---------- Checkpoints ---------- */
 
-  checkpoints = NavexShare.mergeCheckpoints(checkpoints, imported.checkpoints);
-  saveCheckpoints();
-  checkpointMarkers.forEach(x => x.marker.remove());
-  checkpointMarkers = [];
-  checkpoints.forEach(createCheckpointMarker);
-
-  markers.forEach(x => x.marker.remove());
-  markers = [];
-  nextId = 1;
-  applySettings(imported.settings);
-  restorePoints(imported.points);
-  render();
-
-  const bounds = new maptilersdk.LngLatBounds();
-  (imported.points.length ? imported.points : imported.checkpoints).forEach(p => bounds.extend([p.lng, p.lat]));
-  map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
-  els.shareStatus.textContent = `Imported ${imported.points.length} points and ${imported.checkpoints.length} checkpoints.`;
-}
-
-function saveRoute() {
-  try {
-    localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify({
-      settings: { ...state },
-      points: markers.map(x => ({ ...x.point })),
-      savedAt: new Date().toISOString(),
-    }));
-  } catch (err) { console.warn('Could not save route:', err); }
-}
-
-async function loadCheckpoints() {
-  let saved = [];
-  try { saved = JSON.parse(localStorage.getItem(CHECKPOINT_STORAGE_KEY) || '[]'); } catch { saved = []; }
-  checkpoints = Array.isArray(saved) ? saved.filter(cp => cp && cp.id) : [];
-  checkpointMarkers.forEach(x => x.marker.remove());
-  checkpointMarkers = [];
-
-  for (const cp of checkpoints) {
-    try {
-      if (!Number.isFinite(Number(cp.lat)) || !Number.isFinite(Number(cp.lng))) {
-        Object.assign(cp, NavexGrid.mgrToLatLng(cp.mgr));
-      }
-      createCheckpointMarker(cp);
-    } catch (err) {
-      console.warn(`Could not plot ${cp.id}:`, err);
-    }
-  }
-  saveCheckpoints();
-  renderCheckpointList();
-}
-
-function saveCheckpoints() {
-  try { localStorage.setItem(CHECKPOINT_STORAGE_KEY, JSON.stringify(checkpoints)); }
-  catch (err) { console.warn('Could not save checkpoints:', err); }
+function findCheckpoint(id) {
+  const key = String(id || '').toUpperCase();
+  return checkpoints.find(cp => cp.id === key);
 }
 
 function nextCheckpointId(type) {
   let n = 1;
-  while (checkpoints.some(cp => cp.id.toUpperCase() === `${type}${n}`)) n++;
+  while (findCheckpoint(`${type}${n}`)) n++;
   return `${type}${n}`;
 }
 
-function addCheckpoint() {
+function addCheckpoint(event) {
+  event.preventDefault();
   const type = els.cpType.value === 'SCP' ? 'SCP' : 'CP';
   const id = els.cpId.value.trim().toUpperCase() || nextCheckpointId(type);
   const raw = els.cpMgr.value.replace(/\s+/g, '');
-  if (checkpoints.some(cp => cp.id.toUpperCase() === id)) {
-    els.cpStatus.textContent = `${id} already exists.`;
-    return;
-  }
-  if (!/^\d{8}$/.test(raw)) {
-    els.cpStatus.textContent = 'Enter an 8-digit MGR, e.g. 28465132.';
-    return;
-  }
+  if (!/^\d{8}$/.test(raw)) { els.cpStatus.textContent = 'Enter an 8-digit MGR, e.g. 2846 5132.'; return; }
+  if (findCheckpoint(id)) { els.cpStatus.textContent = `${id} already exists.`; return; }
 
-  let latLng;
-  try { latLng = NavexGrid.mgrToLatLng(raw); }
-  catch { els.cpStatus.textContent = 'MGR conversion failed.'; return; }
-  const cp = { id, name: els.cpName.value.trim(), type, mgr: `${raw.slice(0, 4)} ${raw.slice(4)}`, ...latLng };
+  const pos = NavexGrid.mgrToLatLng(raw);
+  const cp = { id, name: '', type, mgr: NavexGrid.formatMGR(pos.lat, pos.lng), ...pos };
   checkpoints.push(cp);
   saveCheckpoints();
-  createCheckpointMarker(cp);
-  renderCheckpointList();
-  map.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
-  els.cpId.value = '';
   els.cpMgr.value = '';
-  els.cpName.value = '';
-  els.cpStatus.textContent = `${id} added.`;
+  els.cpId.value = '';
+  els.cpStatus.textContent = `${id} added at ${cp.mgr}.`;
+  drawMarkers();
+  renderPanel();
+  map?.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
+  els.cpMgr.focus();
 }
 
 function removeCheckpoint(id) {
-  const i = checkpoints.findIndex(cp => cp.id === id);
-  if (i < 0) return;
-  checkpoints.splice(i, 1);
-  checkpointMarkers = checkpointMarkers.filter(x => {
-    if (x.cp.id !== id) return true;
-    x.marker.remove();
-    return false;
-  });
+  const used = route.some(p => p.checkpointId === id);
+  if (!confirm(used ? `Delete ${id}? It will also be removed from the route.` : `Delete ${id}?`)) return;
+  checkpoints = checkpoints.filter(cp => cp.id !== id);
+  route = route.filter(p => p.checkpointId !== id);
   saveCheckpoints();
-  const routePoint = markers.find(x => x.point.checkpointId === id);
-  if (routePoint) removePoint(routePoint.point.id);
-  else renderCheckpointList();
+  routeChanged();
 }
 
-function createCheckpointMarker(cp) {
-  const type = String(cp.type || 'CP').toUpperCase() === 'SCP' ? 'SCP' : 'CP';
-  const el = document.createElement('button');
-  el.type = 'button';
-  el.className = `checkpoint-marker ${type.toLowerCase()}`;
-  const label = document.createElement('span');
-  label.className = 'cp-label';
-  label.textContent = cp.id || cp.name || type;
-  el.appendChild(label);
-  el.title = `${cp.name || cp.id || type} — click to add to route`;
-
-  const marker = new maptilersdk.Marker({ element: el, anchor: 'center' })
-    .setLngLat([cp.lng, cp.lat])
-    .addTo(map);
-  if (!checkpointsVisible) el.style.display = 'none';
-
-  el.addEventListener('click', event => {
-    event.stopPropagation();
-    addCheckpointToRoute(cp);
-  });
-
-  checkpointMarkers.push({ cp, marker });
+function sortedCheckpoints() {
+  return [...checkpoints].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
 }
 
-function addCheckpointToRoute(cp) {
-  const existing = markers.find(x => x.point.checkpointId === cp.id);
-  if (existing) {
-    map.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
+/* ---------- Route ---------- */
+
+function makePoint(p) {
+  const cp = p.checkpointId ? findCheckpoint(p.checkpointId) : null;
+  return cp
+    ? { id: nextPointId++, lat: cp.lat, lng: cp.lng, checkpointId: cp.id }
+    : { id: nextPointId++, lat: Number(p.lat), lng: Number(p.lng), checkpointId: null };
+}
+
+function addRoutePoint(pos, checkpointId = null) {
+  if (checkpointId && route[route.length - 1]?.checkpointId === checkpointId) return;
+  route.push(makePoint({ lat: pos.lat, lng: pos.lng, checkpointId }));
+  routeChanged();
+}
+
+function removeRoutePoint(id) {
+  route = route.filter(p => p.id !== id);
+  routeChanged();
+}
+
+function routeChanged(redrawMarkers = true) {
+  saveRoute();
+  updateRouteLine();
+  if (redrawMarkers) drawMarkers();
+  renderPanel();
+}
+
+/* ---------- Export / import / print ---------- */
+
+function exportFile() {
+  if (!route.length && !checkpoints.length) {
+    NavexShare.notify('Nothing to export yet.');
     return;
   }
-  addPoint({ lat: cp.lat, lng: cp.lng }, {
-    id: cp.id,
-    name: cp.name || cp.id,
-    type: cp.type || 'CP',
-    mgr: cp.mgr || null,
-  }, true);
-  map.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
+  const data = NavexShare.buildRouteFile({ checkpoints, points: route });
+  NavexShare.downloadRouteFile(data);
+  NavexShare.notify(`Exported ${data.checkpoints.length} checkpoints and ${data.points.length} route points.`);
 }
 
-function addPoint(latLng, checkpoint = null, fixed = false) {
-  const point = {
-    id: nextId++,
-    lat: Number(latLng.lat),
-    lng: Number(latLng.lng),
-    mgr: null,
-    description: checkpoint?.name || '',
-    remarks: '',
-    checkpointId: checkpoint?.id || null,
-    checkpointType: checkpoint?.type || null,
-    fixed: Boolean(fixed),
-  };
+async function importFile(file) {
+  let imported;
+  try { imported = NavexShare.parseRouteFile(await file.text()); }
+  catch (err) { NavexShare.notify(err.message); return; }
+  if (route.length && !confirm(`Replace the current route (${route.length} points) with the imported one?`)) return;
 
-  const el = document.createElement('div');
-  el.className = `route-marker ${point.fixed ? 'fixed' : 'manual'}`;
-  el.title = point.fixed ? `${point.checkpointId} — fixed checkpoint` : `Route point ${markers.length + 1}`;
+  checkpoints = NavexShare.mergeCheckpoints(checkpoints, imported.checkpoints);
+  saveCheckpoints();
+  route = imported.points.map(makePoint);
+  routeChanged();
+  fitTo(route.length ? route : imported.checkpoints);
+  NavexShare.notify(`Imported ${imported.checkpoints.length} checkpoints and ${imported.points.length} route points.`);
+}
 
-  const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !fixed })
-    .setLngLat([point.lng, point.lat])
-    .addTo(map);
+function renderPrintSheet() {
+  const legs = NavexShare.buildLegs(route);
+  const total = legs.reduce((sum, leg) => sum + leg.distance, 0);
+  const date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const legRows = legs.map(leg => `<tr>
+      <td>${leg.no}</td><td>${esc(leg.from)}</td><td class="mono">${esc(leg.fromMgr)}</td>
+      <td>${esc(leg.to)}</td><td class="mono">${esc(leg.toMgr)}</td>
+      <td class="num">${leg.azimuth}</td><td class="num">${Math.round(leg.distance)}</td>
+    </tr>`).join('');
+  const cpRows = sortedCheckpoints().map(cp => `<tr><td>${esc(cp.id)}</td><td>${cp.type}</td><td class="mono">${esc(cp.mgr)}</td></tr>`).join('');
+  els.printSheet.innerHTML = `
+    <h1>Navigational Data Sheet</h1>
+    <p>${esc(date)} · ${legs.length} leg${legs.length === 1 ? '' : 's'} · ${formatDistance(total)}</p>
+    <table>
+      <thead><tr><th>Leg</th><th>From</th><th>From MGR</th><th>To</th><th>To MGR</th><th>Azimuth (mils)</th><th>Distance (m)</th></tr></thead>
+      <tbody>${legRows || '<tr><td colspan="7">No legs planned.</td></tr>'}</tbody>
+    </table>
+    ${cpRows ? `<h2>Checkpoints</h2><table class="cp-table"><thead><tr><th>ID</th><th>Type</th><th>MGR</th></tr></thead><tbody>${cpRows}</tbody></table>` : ''}`;
+}
 
-  el.addEventListener('click', event => {
-    event.stopPropagation();
-    openPointEditor(point.id);
-  });
+/* ---------- Panel ---------- */
 
-  if (!fixed) {
-    marker.on('dragend', () => {
-      const pos = marker.getLngLat();
-      point.lat = pos.lat;
-      point.lng = pos.lng;
-      point.mgr = null;
-      syncPolyline();
-      render();
-    });
+function renderPanel() {
+  renderCheckpoints();
+  renderRoute();
+}
+
+function renderCheckpoints() {
+  els.cpCount.textContent = checkpoints.length ? checkpoints.length : '';
+  if (!checkpoints.length) {
+    els.checkpointList.innerHTML = '<p class="empty">No checkpoints yet. Add one by MGR above.</p>';
+    return;
   }
-
-  markers.push({ point, marker });
-  syncPolyline();
-  render();
+  const inRoute = new Set(route.map(p => p.checkpointId).filter(Boolean));
+  els.checkpointList.innerHTML = sortedCheckpoints().map(cp => `
+    <div class="cp-row" data-focus="${esc(cp.id)}" title="Show ${esc(cp.id)} on the map">
+      <span class="cp-dot${cp.type === 'SCP' ? ' scp' : ''}"></span>
+      <span class="cp-text">
+        <span class="cp-id">${esc(cp.id)}</span>
+        <span class="mgr">${esc(cp.mgr)}</span>
+        ${inRoute.has(cp.id) ? '<span class="in-route">in route</span>' : ''}
+      </span>
+      <button class="small" data-route="${esc(cp.id)}" title="Add ${esc(cp.id)} to the route">+ Route</button>
+      <button class="icon-btn" data-delete="${esc(cp.id)}" aria-label="Delete ${esc(cp.id)}" title="Delete ${esc(cp.id)}">×</button>
+    </div>`).join('');
 }
 
-function removePoint(id) {
-  const i = markers.findIndex(x => x.point.id === id);
-  if (i < 0) return;
-  markers[i].marker.remove();
-  markers.splice(i, 1);
-  syncPolyline();
-  render();
-}
-
-function syncPolyline() {
-  if (!routeSourceReady || !map.getSource('route')) return;
-  const coordinates = markers.map(x => [x.point.lng, x.point.lat]);
-  map.getSource('route').setData({
-    type: 'Feature',
-    geometry: { type: 'LineString', coordinates: coordinates.length >= 2 ? coordinates : [] },
-    properties: {},
-  });
-}
-
-function clearRoute() {
-  markers.forEach(x => x.marker.remove());
-  markers = [];
-  nextId = 1;
-  syncPolyline();
-  render();
-}
-
-function openPointEditor(id) {
-  const item = markers.find(x => x.point.id === id);
-  if (!item) return;
-  editingPointId = id;
-  els.editDescription.value = item.point.description || '';
-  els.editRemarks.value = item.point.remarks || '';
-  els.editDialog.showModal();
-}
-
-function addMGR() {
-  const raw = els.mgrInput.value.replace(/\s+/g, '');
-  if (!/^\d{8}$/.test(raw)) {
-    els.mgrStatus.textContent = 'Invalid MGR. Enter exactly 8 digits, e.g. 28465132.';
+function renderRoute() {
+  els.mapHint.hidden = route.length > 0;
+  els.undoBtn.disabled = !route.length;
+  els.clearBtn.disabled = !route.length;
+  if (!route.length) {
+    els.routeSummary.textContent = '';
+    els.routeList.innerHTML = '<p class="empty">Tap the map to add route points, or tap a checkpoint to route to it.</p>';
     return;
   }
 
-  let latLng;
-  try { latLng = NavexGrid.mgrToLatLng(raw); }
-  catch { els.mgrStatus.textContent = 'MGR conversion failed.'; return; }
-  addPoint(latLng, null, false);
-  map.flyTo({ center: [latLng.lng, latLng.lat], zoom: Math.max(map.getZoom(), 14) });
-  els.mgrInput.value = '';
-  els.mgrStatus.textContent = 'MGR plotted.';
+  const legs = NavexShare.buildLegs(route);
+  const total = legs.reduce((sum, leg) => sum + leg.distance, 0);
+  els.routeSummary.innerHTML = legs.length
+    ? `<b>${legs.length}</b> leg${legs.length === 1 ? '' : 's'} · <b>${formatDistance(total)}</b> total`
+    : 'Add another point to get the first leg.';
+
+  const start = route[0];
+  const startLabel = NavexShare.pointLabel(start, 0);
+  els.routeList.innerHTML = `
+    <div class="route-start">
+      <span class="tag">Start</span>
+      <strong>${esc(startLabel)}</strong>
+      <span class="mgr">${esc(NavexGrid.formatMGR(start.lat, start.lng))}</span>
+      <button class="icon-btn" data-remove="${start.id}" aria-label="Remove ${esc(startLabel)}" title="Remove ${esc(startLabel)}">×</button>
+    </div>
+    ${legs.map((leg, i) => `
+    <div class="leg">
+      <span class="leg-no">${leg.no}</span>
+      <div class="leg-body">
+        <div class="leg-to">to <strong>${esc(leg.to)}</strong> <span class="mgr">${esc(leg.toMgr)}</span></div>
+        <div class="leg-nums">
+          <div><b>${leg.azimuth}</b><span>mils</span></div>
+          <div><b>${Math.round(leg.distance)}</b><span>m</span></div>
+        </div>
+      </div>
+      <button class="icon-btn" data-remove="${route[i + 1].id}" aria-label="Remove ${esc(leg.to)}" title="Remove ${esc(leg.to)}">×</button>
+    </div>`).join('')}`;
 }
 
-function updateMGRs() {
-  markers.forEach(x => { x.point.mgr = NavexGrid.formatMGR(x.point.lat, x.point.lng, state.mgrPrecision); });
-}
+/* ---------- Helpers ---------- */
 
 // Keep only digits and insert the easting/northing space after the 4th digit, preserving the caret.
 function autoFormatMGRInput(input) {
@@ -528,104 +435,10 @@ function autoFormatMGRInput(input) {
   input.setSelectionRange(pos, pos);
 }
 
-function calculateLegs() {
-  const legs = [];
-  for (let i = 0; i < markers.length - 1; i++) {
-    const a = markers[i].point;
-    const b = markers[i + 1].point;
-    const { distance, azimuth } = NavexGrid.leg(a, b);
-    const seconds = distance / (state.speedKmh * 1000 / 3600);
-    legs.push({ from: a, to: b, distance, azimuth, seconds, description: b.description || '', remarks: b.remarks || '' });
-  }
-  return legs;
-}
-
 function formatDistance(m) {
-  return state.distanceUnit === 'km' ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+  return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
 }
 
-function formatTime(seconds) {
-  const total = Math.round(seconds);
-  const h = Math.floor(total / 3600);
-  const min = Math.floor((total % 3600) / 60);
-  const sec = total % 60;
-  return h ? `${h}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${min}:${String(sec).padStart(2, '0')}`;
-}
-
-function render() {
-  updateMGRs();
-  saveRoute();
-  const legs = calculateLegs();
-  renderPointList();
-  renderCheckpointList();
-
-}
-
-function renderCheckpointList() {
-  if (!checkpoints.length) {
-    els.checkpointList.innerHTML = '<div class="empty">No checkpoints yet. Add one above.</div>';
-    return;
-  }
-  els.checkpointList.innerHTML = checkpoints.map(cp => {
-    const plotted = markers.some(x => x.point.checkpointId === cp.id);
-    return `<div class="checkpoint-item">
-      <span class="cp-badge ${String(cp.type || 'CP').toLowerCase()}">${escapeHtml(cp.type || 'CP')}</span>
-      <span class="cp-name"><strong>${escapeHtml(cp.id)}</strong><small>${escapeHtml([cp.mgr, cp.name].filter(Boolean).join(' · '))}</small></span>
-      <button class="icon-btn" data-add-cp="${escapeAttr(cp.id)}" ${plotted ? 'disabled' : ''} title="Add to route">${plotted ? '✓' : 'Add'}</button>
-      <button class="icon-btn" data-remove-cp="${escapeAttr(cp.id)}" title="Delete checkpoint">×</button>
-    </div>`;
-  }).join('');
-  els.checkpointList.querySelectorAll('[data-add-cp]').forEach(btn => btn.addEventListener('click', () => {
-    const cp = checkpoints.find(x => x.id === btn.dataset.addCp);
-    if (cp) addCheckpointToRoute(cp);
-  }));
-  els.checkpointList.querySelectorAll('[data-remove-cp]').forEach(btn => btn.addEventListener('click', () => removeCheckpoint(btn.dataset.removeCp)));
-}
-
-function renderPointList() {
-  if (!markers.length) {
-    els.pointList.innerHTML = '<div class="empty">No route points. Click the map or add a checkpoint.</div>';
-    return;
-  }
-  els.pointList.innerHTML = markers.map((x, i) => `
-    <div class="point-item">
-      <span class="num">${i + 1}</span>
-      <span class="mgr">${escapeHtml(x.point.checkpointId || x.point.mgr || 'Converting…')}</span>
-      <button class="icon-btn" data-delete="${x.point.id}">×</button>
-    </div>`).join('');
-  els.pointList.querySelectorAll('[data-delete]').forEach(btn => btn.addEventListener('click', () => removePoint(Number(btn.dataset.delete))));
-}
-
-function updatePointField(id, field, value) {
-  const item = markers.find(x => x.point.id === id);
-  if (item) { item.point[field] = value; saveRoute(); }
-}
-
-function toggleCheckpoints() {
-  checkpointsVisible = !checkpointsVisible;
-  checkpointMarkers.forEach(x => x.marker.getElement().style.display = checkpointsVisible ? '' : 'none');
-  els.toggleCheckpointsBtn.textContent = checkpointsVisible ? 'Hide Checkpoints' : 'Show Checkpoints';
-}
-
-function escapeAttr(value) {
-  return String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function escapeHtml(value) {
-  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function exportCSV() {
-  const legs = calculateLegs();
-  const rows = [
-    ['No.', 'From MGR', 'To MGR', 'Azimuth (mil)', 'Distance', 'Est. Time', 'Description', 'Remarks'],
-    ...legs.map((x, i) => [i + 1, x.from.mgr, x.to.mgr, String(x.azimuth).padStart(4, '0'), formatDistance(x.distance), formatTime(x.seconds), x.description, x.remarks]),
-  ];
-  const csv = rows.map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'navigational-data-sheet.csv';
-  a.click();
-  URL.revokeObjectURL(a.href);
+function esc(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

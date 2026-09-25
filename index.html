@@ -2,112 +2,75 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NAVEX Navigational Data Sheet</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>NAVEX NDS</title>
   <link rel="stylesheet" href="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <h1>NAVEX NDS</h1>
-      <p>Plot checkpoint-to-checkpoint routes and generate a navigational data sheet.</p>
-    </div>
-    <div class="top-actions">
-      <button id="mapKeyBtn" class="secondary">MapTiler Key</button>
-      <button id="clearBtn" class="secondary">Clear Route</button>
-      <a class="nav-btn secondary" href="nds.html">Open NDS</a>
-    </div>
+    <div class="brand"><h1>NAVEX NDS</h1><span>Route planner</span></div>
+    <nav class="top-actions">
+      <button id="importBtn" class="ghost" title="Import checkpoints and a route from a file">Import</button>
+      <button id="exportBtn" class="ghost" title="Export all checkpoints, the route and the NDS to a file">Export</button>
+      <button id="printBtn" class="ghost" title="Print the navigational data sheet">Print</button>
+      <button id="mapKeyBtn" class="ghost icon" title="MapTiler API key" aria-label="MapTiler API key">⚙</button>
+    </nav>
   </header>
 
-  <main class="layout">
-    <aside class="panel controls">
-      <section>
-        <h2>Route Settings</h2>
-        <label>Estimated speed
-          <div class="input-row"><input id="speed" type="number" min="0.1" step="0.1" value="4.0"><span>km/h</span></div>
-        </label>
-        <label>Distance unit
-          <select id="distanceUnit"><option value="m">metres</option><option value="km">kilometres</option></select>
-        </label>
-        <label>MGR display precision
-          <select id="mgrPrecision"><option value="4">4-digit</option><option value="6">6-digit</option></select>
-        </label>
+  <div class="app">
+    <aside class="panel">
+      <section class="block">
+        <div class="block-head"><h2>Checkpoints <span id="cpCount" class="count"></span></h2></div>
+        <form id="cpForm" class="cp-form" autocomplete="off">
+          <select id="cpType" aria-label="Checkpoint type"><option value="CP">CP</option><option value="SCP">SCP</option></select>
+          <input id="cpMgr" inputmode="numeric" maxlength="9" placeholder="MGR e.g. 2846 5132" aria-label="Checkpoint MGR" required>
+          <input id="cpId" maxlength="12" placeholder="ID (optional, auto-numbered)" aria-label="Checkpoint ID">
+          <button type="submit" class="primary">Add</button>
+        </form>
+        <small id="cpStatus" class="status"></small>
+        <div id="checkpointList" class="cp-list"></div>
       </section>
 
-      <section>
-        <h2>Add MGR</h2>
-        <div class="input-row"><input id="mgrInput" inputmode="numeric" maxlength="9" placeholder="e.g. 2846 5132"><button id="addMgrBtn" class="primary">Plot</button></div>
-        <small id="mgrStatus">Enter an 8-digit MGR. The space is added automatically.</small>
-      </section>
-
-      <section>
-        <h2>Map</h2>
-        <label>Map style
-          <select id="mapType">
-            <option value="streets">Streets</option>
-            <option value="outdoor">Outdoor</option>
-            <option value="satellite">Satellite</option>
-            <option value="hybrid">Hybrid</option>
-          </select>
-        </label>
-        <button id="toggleCheckpointsBtn" class="secondary full-width">Hide Checkpoints</button>
-        <p class="hint">Click the map to add a manual route point. Click a checkpoint to add it to the route. Manual points can be dragged.</p>
-      </section>
-
-      <section>
-        <h2>Checkpoints</h2>
-        <div class="cp-form">
-          <div class="input-row">
-            <select id="cpType" aria-label="Checkpoint type"><option value="CP">CP</option><option value="SCP">SCP</option></select>
-            <input id="cpId" maxlength="12" placeholder="ID (auto)" aria-label="Checkpoint ID">
+      <section class="block route-block">
+        <div class="block-head">
+          <h2>Route</h2>
+          <div class="head-actions">
+            <button id="undoBtn" class="small">Undo</button>
+            <button id="clearBtn" class="small">Clear</button>
           </div>
-          <input id="cpMgr" inputmode="numeric" maxlength="9" placeholder="MGR e.g. 2846 5132" aria-label="Checkpoint MGR">
-          <input id="cpName" maxlength="60" placeholder="Name (optional)" aria-label="Checkpoint name">
-          <button id="addCpBtn" class="primary full-width">Add Checkpoint</button>
         </div>
-        <small id="cpStatus"></small>
-        <div id="checkpointList" class="checkpoint-list"></div>
-      </section>
-
-      <section>
-        <h2>Route Points</h2>
-        <div class="share-actions">
-          <button id="exportRouteBtn" class="secondary">Export Route</button>
-          <button id="importRouteBtn" class="secondary">Import Route</button>
-        </div>
-        <input id="importFile" type="file" accept=".json,application/json" hidden>
-        <small id="shareStatus"></small>
-        <div id="pointList" class="point-list"></div>
+        <p id="routeSummary" class="summary"></p>
+        <div id="routeList"></div>
       </section>
     </aside>
 
-    <section class="map-panel">
+    <main class="map-wrap">
       <div id="map"></div>
-      <div class="map-help">Click map to add manual point • Click CP/SCP to add it • Drag manual points to adjust</div>
-    </section>
+      <div class="map-style" role="group" aria-label="Map style">
+        <button data-style="topo" class="active">Topo</button>
+        <button data-style="satellite">Satellite</button>
+      </div>
+      <p id="mapHint" class="map-hint">Tap the map to add a route point · Tap a checkpoint to route to it</p>
+    </main>
+  </div>
 
-
-  </main>
+  <section id="printSheet" class="print-sheet"></section>
 
   <dialog id="apiKeyDialog">
-    <form method="dialog" id="apiKeyForm">
-      <h3>MapTiler API Key</h3>
-      <p class="dialog-help">Enter your MapTiler Cloud API key. It is stored only in this browser using local storage.</p>
+    <form id="apiKeyForm">
+      <h3>MapTiler API key</h3>
+      <p class="dialog-help">The map needs a MapTiler Cloud API key. It is stored only in this browser.</p>
       <label>API key<input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your MapTiler API key"></label>
       <div id="apiKeyStatus" class="dialog-status"></div>
-      <div class="dialog-actions"><button id="apiKeyCancelBtn" type="button" value="cancel" class="secondary">Cancel</button><button type="submit" value="save" class="primary">Save & Load Map</button></div>
+      <div class="dialog-actions">
+        <button id="apiKeyCancelBtn" type="button">Cancel</button>
+        <button type="submit" class="primary">Save &amp; load map</button>
+      </div>
     </form>
   </dialog>
 
-  <dialog id="editDialog">
-    <form method="dialog" id="editForm">
-      <h3>Edit Route Point</h3>
-      <label>Description<input id="editDescription" type="text" maxlength="120"></label>
-      <label>Remarks<textarea id="editRemarks" rows="4" maxlength="500"></textarea></label>
-      <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button value="save" class="primary">Save</button></div>
-    </form>
-  </dialog>
+  <input id="importFile" type="file" accept=".json,application/json" hidden>
 
   <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.15.0/proj4.js"></script>

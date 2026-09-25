@@ -28,11 +28,10 @@
     return { x, y };
   }
 
-  // precision 4: 8-digit MGR ("2846 5132"); precision 6: full easting/northing in metres.
-  function formatMGR(lat, lng, precision = 4) {
+  // 8-digit MGR, e.g. "2846 5132".
+  function formatMGR(lat, lng) {
     if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return '—';
     const { x, y } = latLngToGrid(lat, lng);
-    if (precision === 6) return `${Math.round(x)} ${Math.round(y)}`;
     const digits = v => String(Math.floor((Math.round(v) % 100000) / 10)).padStart(4, '0');
     return `${digits(x)} ${digits(y)}`;
   }
