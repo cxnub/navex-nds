@@ -31,6 +31,7 @@ let checkpoints = []; // { id, name, type: 'CP' | 'SCP', mgr, lat, lng }
 let route = [];       // { id, lat, lng, checkpointId, description, remarks }
 let nextPointId = 1;
 let speedKmh = 4;
+let coordMode = 'mgr'; // checkpoint entry: 'mgr' or 'latlng'
 let editingPointId = null; // waypoint whose incoming leg is being adjusted
 const els = {};
 
@@ -59,7 +60,11 @@ function init() {
 
 function bindUI() {
   els.cpForm.addEventListener('submit', addCheckpoint);
-  els.cpMgr.addEventListener('input', () => autoFormatMGRInput(els.cpMgr));
+  els.cpMgr.addEventListener('input', () => { if (coordMode === 'mgr') autoFormatMGRInput(els.cpMgr); });
+  document.querySelector('.coord-mode').addEventListener('click', event => {
+    const btn = event.target.closest('[data-mode]');
+    if (btn) setCoordMode(btn.dataset.mode);
+  });
   els.checkpointList.addEventListener('click', event => {
     const target = event.target.closest('[data-route], [data-delete], [data-focus]');
     if (!target) return;
@@ -321,7 +326,7 @@ function drawMarkers() {
   route.forEach((p, i) => {
     const el = document.createElement('div');
     el.className = `route-marker${p.checkpointId ? ' on-cp' : ''}`;
-    el.title = `${labels[i]} — drag to adjust`;
+    el.title = p.checkpointId ? labels[i] : `${labels[i]} · ${NavexGrid.formatLatLng(p.lat, p.lng)} — drag to adjust`;
     el.addEventListener('click', event => event.stopPropagation());
     const marker = new maptilersdk.Marker({ element: el, anchor: 'center', draggable: !p.checkpointId })
       .setLngLat([p.lng, p.lat])
@@ -360,21 +365,56 @@ function nextCheckpointId(type) {
   return `${type}${n}`;
 }
 
+function setCoordMode(mode) {
+  coordMode = mode === 'latlng' ? 'latlng' : 'mgr';
+  document.querySelectorAll('.coord-mode [data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === coordMode));
+  const latlng = coordMode === 'latlng';
+  els.cpMgr.value = '';
+  els.cpMgr.maxLength = latlng ? 40 : 9;
+  els.cpMgr.inputMode = latlng ? 'text' : 'numeric';
+  els.cpMgr.placeholder = latlng ? 'Lat, Lng e.g. 1.36832, 103.65100' : 'MGR e.g. 2846 5132';
+  els.cpMgr.setAttribute('aria-label', latlng ? 'Checkpoint latitude and longitude' : 'Checkpoint MGR');
+  els.cpStatus.textContent = '';
+  els.cpMgr.focus();
+}
+
+// "lat, lng" or "lat lng" in decimal degrees; swaps the pair if it is clearly lng, lat.
+function parseLatLng(text) {
+  const nums = String(text).match(/-?\d+(?:\.\d+)?/g);
+  if (!nums || nums.length !== 2) return null;
+  let [lat, lng] = nums.map(Number);
+  if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) [lat, lng] = [lng, lat];
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
+
+// Position from the checkpoint form in the current entry mode, or an error message.
+function readCheckpointPosition() {
+  if (coordMode === 'latlng') {
+    const pos = parseLatLng(els.cpMgr.value);
+    if (!pos) return { error: 'Enter latitude and longitude, e.g. 1.36832, 103.65100.' };
+    if (!NavexGrid.inMgrArea(pos.lat, pos.lng)) return { error: 'That position is outside the MGR grid area this app covers (Singapore).' };
+    return { pos };
+  }
+  const raw = els.cpMgr.value.replace(/\s+/g, '');
+  if (!/^\d{8}$/.test(raw)) return { error: 'Enter an 8-digit MGR, e.g. 2846 5132.' };
+  return { pos: NavexGrid.mgrToLatLng(raw) };
+}
+
 function addCheckpoint(event) {
   event.preventDefault();
   const type = els.cpType.value === 'SCP' ? 'SCP' : 'CP';
   const id = els.cpId.value.trim().toUpperCase() || nextCheckpointId(type);
-  const raw = els.cpMgr.value.replace(/\s+/g, '');
-  if (!/^\d{8}$/.test(raw)) { els.cpStatus.textContent = 'Enter an 8-digit MGR, e.g. 2846 5132.'; return; }
+  const { pos, error } = readCheckpointPosition();
+  if (error) { els.cpStatus.textContent = error; return; }
   if (findCheckpoint(id)) { els.cpStatus.textContent = `${id} already exists.`; return; }
 
-  const pos = NavexGrid.mgrToLatLng(raw);
   const cp = { id, name: '', type, mgr: NavexGrid.formatMGR(pos.lat, pos.lng), ...pos };
   checkpoints.push(cp);
   saveCheckpoints();
   els.cpMgr.value = '';
   els.cpId.value = '';
-  els.cpStatus.textContent = `${id} added at ${cp.mgr}.`;
+  els.cpStatus.textContent = `${id} added at ${cp.mgr} (${NavexGrid.formatLatLng(cp.lat, cp.lng)}).`;
   drawMarkers();
   renderPanel();
   map?.flyTo({ center: [cp.lng, cp.lat], zoom: Math.max(map.getZoom(), 14) });
@@ -716,6 +756,7 @@ function legCard(leg, point) {
       <span class="leg-no">${leg.no}</span>
       <div class="leg-body">
         <div class="leg-to">to <strong>${esc(leg.to)}</strong> <span class="mgr">${esc(leg.toMgr)}</span></div>
+        ${isWaypoint ? `<div class="latlng">${NavexGrid.formatLatLng(point.lat, point.lng)}</div>` : ''}
         ${legNums(leg, point)}
       </div>
       <button class="icon-btn" data-remove="${point.id}" aria-label="Remove ${esc(leg.to)}" title="Remove ${esc(leg.to)}">×</button>

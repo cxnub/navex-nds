@@ -58,5 +58,15 @@
     return gridToLatLng(start.x + distance * Math.sin(angle), start.y + distance * Math.cos(angle));
   }
 
-  window.NavexGrid = { parseMGR, mgrToLatLng, latLngToGrid, gridToLatLng, formatMGR, leg, offset };
+  // The 8-digit MGR used here covers eastings 6xxxxx m and northings 1xxxxx m (Singapore).
+  function inMgrArea(lat, lng) {
+    const { x, y } = latLngToGrid(lat, lng);
+    return x >= 600000 && x < 700000 && y >= 100000 && y < 200000;
+  }
+
+  function formatLatLng(lat, lng) {
+    return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+  }
+
+  window.NavexGrid = { parseMGR, mgrToLatLng, latLngToGrid, gridToLatLng, formatMGR, formatLatLng, inMgrArea, leg, offset };
 })();

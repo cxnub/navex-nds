@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>NAVEX NDS</title>
   <link rel="stylesheet" href="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.css" />
-  <link rel="stylesheet" href="styles.css?v=20260925h" />
+  <link rel="stylesheet" href="styles.css?v=20260925i" />
 </head>
 <body>
   <header class="topbar">
@@ -21,7 +21,13 @@
   <div class="app">
     <aside class="panel">
       <section class="block">
-        <div class="block-head"><h2>Checkpoints <span id="cpCount" class="count"></span></h2></div>
+        <div class="block-head">
+          <h2>Checkpoints <span id="cpCount" class="count"></span></h2>
+          <div class="coord-mode" role="group" aria-label="Enter checkpoints as">
+            <button type="button" data-mode="mgr" class="active">MGR</button>
+            <button type="button" data-mode="latlng">Lat/Lng</button>
+          </div>
+        </div>
         <form id="cpForm" class="cp-form" autocomplete="off">
           <select id="cpType" aria-label="Checkpoint type"><option value="CP">CP</option><option value="SCP">SCP</option></select>
           <input id="cpMgr" inputmode="numeric" maxlength="9" placeholder="MGR e.g. 2846 5132" aria-label="Checkpoint MGR" required>
@@ -109,8 +115,8 @@
   <script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.9.0/maptiler-sdk.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.15.0/proj4.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
-  <script src="grid.js?v=20260925h"></script>
-  <script src="share.js?v=20260925h"></script>
-  <script src="app.js?v=20260925h"></script>
+  <script src="grid.js?v=20260925i"></script>
+  <script src="share.js?v=20260925i"></script>
+  <script src="app.js?v=20260925i"></script>
 </body>
 </html>
