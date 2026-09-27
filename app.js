@@ -265,7 +265,7 @@ function initMap(apiKey) {
 function loadCheckpointSize() {
   let size = DEFAULT_CP_SIZE;
   try { size = Number(localStorage.getItem(CP_SIZE_STORAGE_KEY)) || DEFAULT_CP_SIZE; } catch { /* default */ }
-  return Math.min(30, Math.max(6, size));
+  return Math.min(30, Math.max(1, size));
 }
 
 // Checkpoint dot diameter in px; markers, labels and route rings scale from --cp-size in CSS.

@@ -358,7 +358,7 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .checkpoint-marker, .route-marker.on-cp { width: var(--cp-hit); height: var(--cp-hit); }
 .route-marker.on-cp { pointer-events: none; }
 .route-marker.on-cp::after { box-sizing: border-box; flex: none; width: calc(var(--cp-size) + 10px); height: calc(var(--cp-size) + 10px); background: none; border: 3px solid var(--roa); box-shadow: none; }
-.checkpoint-marker::after { width: var(--cp-size); height: var(--cp-size); background: #000; border: 2px solid #fff; }
+.checkpoint-marker::after { width: var(--cp-size); height: var(--cp-size); background: #000; border: clamp(1px, calc(var(--cp-size) / 6), 2px) solid #fff; }
 .checkpoint-marker.scp::after { width: calc(var(--cp-size) * .75); height: calc(var(--cp-size) * .75); }
 .cp-label {
   position: absolute;
