@@ -248,7 +248,7 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 
 /* ---------- Map ---------- */
 
-.map-wrap { position: relative; min-height: 0; }
+.map-wrap { position: relative; min-height: 0; --cp-size: 12px; --cp-hit: max(22px, calc(var(--cp-size) + 10px)); }
 #map { position: absolute; inset: 0; }
 
 .map-controls {
@@ -300,6 +300,19 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .view-only-switch[aria-checked="true"] .switch-knob { transform: translateX(12px); }
 .view-only .route-marker, .view-only .checkpoint-marker { cursor: default; }
 .view-only .map-hint { display: none; }
+.size-ctl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .1);
+  font-size: 12px;
+  font-weight: 600;
+}
+.size-ctl input { width: 90px; min-height: 0; padding: 0; border: 0; accent-color: var(--accent); }
+.size-ctl output { width: 34px; color: var(--muted); font: 12px var(--mono); text-align: right; }
 .overlay-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
 .overlay-toggle input { margin: 0; min-height: 0; accent-color: var(--accent); }
 .overlay-opacity { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
@@ -341,16 +354,18 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 .checkpoint-marker:hover { background: none; }
 .route-marker::after, .checkpoint-marker::after { content: ''; border-radius: 50%; box-shadow: 0 0 2px rgba(0, 0, 0, .7); }
 .route-marker::after { width: 10px; height: 10px; background: var(--roa); border: 2px solid #fff; }
+/* Checkpoint dots, labels and route rings scale with --cp-size (set from the size slider). */
+.checkpoint-marker, .route-marker.on-cp { width: var(--cp-hit); height: var(--cp-hit); }
 .route-marker.on-cp { pointer-events: none; }
-.route-marker.on-cp::after { width: 20px; height: 20px; background: none; border: 3px solid var(--roa); box-shadow: none; }
-.checkpoint-marker::after { width: 12px; height: 12px; background: #000; border: 2px solid #fff; }
-.checkpoint-marker.scp::after { width: 9px; height: 9px; }
+.route-marker.on-cp::after { box-sizing: border-box; flex: none; width: calc(var(--cp-size) + 10px); height: calc(var(--cp-size) + 10px); background: none; border: 3px solid var(--roa); box-shadow: none; }
+.checkpoint-marker::after { width: var(--cp-size); height: var(--cp-size); background: #000; border: 2px solid #fff; }
+.checkpoint-marker.scp::after { width: calc(var(--cp-size) * .75); height: calc(var(--cp-size) * .75); }
 .cp-label {
   position: absolute;
-  left: calc(50% + 10px);
+  left: calc(50% + var(--cp-size) / 2 + 5px);
   top: 50%;
   transform: translateY(-50%);
-  font: 700 11px var(--mono);
+  font: 700 calc(8px + var(--cp-size) / 4) var(--mono);
   color: #000;
   white-space: nowrap;
   pointer-events: none;
@@ -475,7 +490,8 @@ dialog input { width: 100%; margin-top: 4px; }
   .icon-btn { min-width: 38px; }
   .drag-handle { width: 28px; min-height: 36px; font-size: 20px; }
 
-  .route-marker, .checkpoint-marker { width: 30px; height: 30px; }
+  .route-marker { width: 30px; height: 30px; }
+  .map-wrap { --cp-hit: max(30px, calc(var(--cp-size) + 12px)); }
   .map-hint { bottom: 34px; font-size: 11px; }
 
   .nds-dialog { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; border: 0; border-radius: 0; }

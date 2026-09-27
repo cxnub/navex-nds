@@ -9,6 +9,8 @@
 const MAPTILER_STORAGE_KEY = 'navex.maptiler.apiKey';
 const ROUTE_STORAGE_KEY = 'navex.route';
 const VIEW_ONLY_STORAGE_KEY = 'navex.viewOnly';
+const CP_SIZE_STORAGE_KEY = 'navex.cpSize';
+const DEFAULT_CP_SIZE = 12;
 const ROA_COLOR = '#22c55e';
 const MAP_STYLES = {
   topo: maptilersdk.MapStyle.OUTDOOR,
@@ -45,7 +47,7 @@ function init() {
     'ndsDialog', 'ndsSummary', 'ndsSpeed', 'ndsTable', 'ndsPrintBtn', 'ndsCloseBtn',
     'cpForm', 'cpType', 'cpMgr', 'cpId', 'cpStatus', 'cpCount', 'checkpointList',
     'undoBtn', 'clearBtn', 'routeSummary', 'routeList', 'printSheet', 'mapHint',
-    'overlayToggle', 'overlayOpacity', 'overlayOpacityValue', 'viewOnlyBtn',
+    'overlayToggle', 'overlayOpacity', 'overlayOpacityValue', 'viewOnlyBtn', 'cpSize', 'cpSizeValue',
     'apiKeyDialog', 'apiKeyForm', 'apiKeyInput', 'apiKeyStatus', 'apiKeyCancelBtn', 'apiKeyHelp',
   ].forEach(id => { els[id] = document.getElementById(id); });
 
@@ -125,6 +127,12 @@ function bindUI() {
     if (!point) return;
     point[input.dataset.field] = input.value;
     saveRoute();
+  });
+
+  applyCheckpointSize(loadCheckpointSize());
+  els.cpSize.addEventListener('input', () => {
+    applyCheckpointSize(Number(els.cpSize.value));
+    try { localStorage.setItem(CP_SIZE_STORAGE_KEY, els.cpSize.value); } catch { /* not persisted */ }
   });
 
   renderViewOnly();
@@ -252,6 +260,19 @@ function initMap(apiKey) {
     }
     addRoutePoint({ lat: event.lngLat.lat, lng: event.lngLat.lng });
   });
+}
+
+function loadCheckpointSize() {
+  let size = DEFAULT_CP_SIZE;
+  try { size = Number(localStorage.getItem(CP_SIZE_STORAGE_KEY)) || DEFAULT_CP_SIZE; } catch { /* default */ }
+  return Math.min(30, Math.max(6, size));
+}
+
+// Checkpoint dot diameter in px; markers, labels and route rings scale from --cp-size in CSS.
+function applyCheckpointSize(size) {
+  els.cpSize.value = size;
+  els.cpSizeValue.textContent = `${size}px`;
+  document.querySelector('.map-wrap').style.setProperty('--cp-size', `${size}px`);
 }
 
 function loadViewOnly() {
