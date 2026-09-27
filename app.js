@@ -18,13 +18,13 @@ const MAP_STYLES = {
 let map = null;
 let mapStyle = 'topo';
 
-// 2005 1:50,000 topographic map of Singapore (NUS Libraries WMTS, Web Mercator). Note the {y}/{x} order.
 const OVERLAY_STORAGE_KEY = 'navex.overlay';
-const TOPO50K = {
-  tiles: ['https://libmaps.nus.edu.sg/services/2005_50K/{z}/{y}/{x}'],
-  bounds: [103.546, 1.104, 104.162, 1.533],
-  minzoom: 9,
-  maxzoom: 16,
+// 2010 topographic map of Singapore (NUS Libraries WMTS, Web Mercator). Note the {y}/{x} order.
+const TOPO_OVERLAY = {
+  tiles: ['https://libmaps.nus.edu.sg/services/2010/{z}/{y}/{x}'],
+  bounds: [103.603, 1.128, 104.060, 1.481],
+  minzoom: 10,
+  maxzoom: 17,
 };
 const overlay = loadOverlaySettings();
 let mapMarkers = [];
@@ -279,19 +279,19 @@ function renderOverlayControls() {
   els.overlayOpacity.parentElement.hidden = !overlay.on;
 }
 
-// The 1:50K map sits above the base map and below the route line.
+// The topo map overlay sits above the base map and below the route line.
 function addOverlayLayer() {
-  if (map.getSource('topo50k')) return;
-  map.addSource('topo50k', {
+  if (map.getSource('topo-overlay')) return;
+  map.addSource('topo-overlay', {
     type: 'raster',
     tileSize: 256,
-    attribution: '1:50,000 map (2005) via NUS Libraries',
-    ...TOPO50K,
+    attribution: 'Topo map (2010) via NUS Libraries',
+    ...TOPO_OVERLAY,
   });
   map.addLayer({
-    id: 'topo50k',
+    id: 'topo-overlay',
     type: 'raster',
-    source: 'topo50k',
+    source: 'topo-overlay',
     layout: { visibility: overlay.on ? 'visible' : 'none' },
     paint: { 'raster-opacity': overlay.opacity },
   }, map.getLayer('route-line') ? 'route-line' : undefined);
@@ -300,9 +300,9 @@ function addOverlayLayer() {
 function applyOverlay() {
   renderOverlayControls();
   try { localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(overlay)); } catch { /* not persisted */ }
-  if (!map?.getLayer('topo50k')) return;
-  map.setLayoutProperty('topo50k', 'visibility', overlay.on ? 'visible' : 'none');
-  map.setPaintProperty('topo50k', 'raster-opacity', overlay.opacity);
+  if (!map?.getLayer('topo-overlay')) return;
+  map.setLayoutProperty('topo-overlay', 'visibility', overlay.on ? 'visible' : 'none');
+  map.setPaintProperty('topo-overlay', 'raster-opacity', overlay.opacity);
 }
 
 function routeGeoJSON() {
