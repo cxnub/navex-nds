@@ -340,8 +340,8 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 /* Map markers: small dots inside a larger transparent hit area.
    Never set `position` here: MapLibre positions markers with position:absolute. */
 .route-marker, .checkpoint-marker {
-  width: 22px;
-  height: 22px;
+  width: var(--cp-hit);
+  height: var(--cp-hit);
   min-height: 0;
   padding: 0;
   border: 0;
@@ -353,9 +353,8 @@ input:focus, select:focus { border-color: var(--accent); outline: none; }
 }
 .checkpoint-marker:hover { background: none; }
 .route-marker::after, .checkpoint-marker::after { content: ''; border-radius: 50%; box-shadow: 0 0 2px rgba(0, 0, 0, .7); }
-.route-marker::after { width: 10px; height: 10px; background: var(--roa); border: 2px solid #fff; }
-/* Checkpoint dots, labels and route rings scale with --cp-size (set from the size slider). */
-.checkpoint-marker, .route-marker.on-cp { width: var(--cp-hit); height: var(--cp-hit); }
+.route-marker::after { width: calc(var(--cp-size) * 5 / 6); height: calc(var(--cp-size) * 5 / 6); background: var(--roa); border: clamp(1px, calc(var(--cp-size) / 6), 2px) solid #fff; }
+/* Checkpoint and waypoint dots, labels and route rings scale with --cp-size (the Point size slider). */
 .route-marker.on-cp { pointer-events: none; }
 .route-marker.on-cp::after { box-sizing: border-box; flex: none; width: calc(var(--cp-size) + 10px); height: calc(var(--cp-size) + 10px); background: none; border: 3px solid var(--roa); box-shadow: none; }
 .checkpoint-marker::after { width: var(--cp-size); height: var(--cp-size); background: #000; border: clamp(1px, calc(var(--cp-size) / 6), 2px) solid #fff; }
@@ -490,7 +489,6 @@ dialog input { width: 100%; margin-top: 4px; }
   .icon-btn { min-width: 38px; }
   .drag-handle { width: 28px; min-height: 36px; font-size: 20px; }
 
-  .route-marker { width: 30px; height: 30px; }
   .map-wrap { --cp-hit: max(30px, calc(var(--cp-size) + 12px)); }
   .map-hint { bottom: 34px; font-size: 11px; }
 

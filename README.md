@@ -2,7 +2,7 @@
 
 Plan a navigation route and get the **MGR, azimuth and distance** of every leg, for navigating with a map and compass.
 
-1. **Checkpoints:** add each CP/SCP by its 8-digit MGR, or switch the form to **Lat/Lng** and enter decimal degrees (e.g. `1.36832, 103.65100`). They show on the map as black dots. Use **Checkpoint size** on the map to make the dots and labels bigger or smaller.
+1. **Checkpoints:** add each CP/SCP by its 8-digit MGR, or switch the form to **Lat/Lng** and enter decimal degrees (e.g. `1.36832, 103.65100`). They show on the map as black dots. Use **Point size** on the map to make checkpoint and waypoint dots (and checkpoint labels) bigger or smaller.
 2. **Route:** the route starts at a checkpoint. Tap checkpoints in the order you will visit them, and tap the map to add waypoints between them. The route of advance (ROA) is drawn in green.
 3. **Sections:** the route is grouped into collapsible checkpoint-to-checkpoint sections, each holding its intermediate waypoints. Drag waypoints on the map to adjust them, or turn on **View only** on the map to stop the route being edited by accident. The map can still be panned and zoomed. Drag them in the list (⠿) to reorder them within a section or move them to another section.
 4. **Legs:** each leg shows the destination MGR, the grid azimuth in mils and the distance in metres. Waypoints also show their lat/lng. For a leg that ends at a waypoint, tap the mils/metres to type an exact azimuth and distance. The waypoint moves to that bearing and distance from the previous point.
